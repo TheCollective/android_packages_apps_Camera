@@ -14,15 +14,15 @@
      limitations under the License.
 -->
 <resources xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- When an activity requests a theme with an action bar from its manifest,
-         the activity preview window created by the system process while the
-         real activity is loading will also contain an action bar. Set this to
-         NoActionBar and change the theme in onCreate. -->
-    <style name="ThemeCamera" parent="android:Theme.Holo.NoActionBar.Fullscreen">
+    <style name="Theme.CameraSecure" parent="Theme.Camera">
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
+    <style name="Theme.Camera" parent="Theme.CameraBase">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:colorBackground">@android:color/black</item>
         <item name="android:colorBackgroundCacheHint">@android:color/black</item>
     </style>
+    <style name="Theme.CameraBase" parent="android:Theme.Black.NoTitleBar.Fullscreen"/>
     <style name="OnScreenHintTextAppearance">
         <item name="android:textColor">@android:color/primary_text_dark</item>
         <item name="android:textColorHighlight">#FFFF9200</item>
@@ -58,11 +58,12 @@
         <item name="android:layout_gravity">center</item>
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
+        <item name="android:listSelector">@drawable/bg_pressed</item>
     </style>
     <style name="SettingItemTitle">
         <item name="android:textSize">@dimen/setting_item_text_size</item>
         <item name="android:gravity">left|center_vertical</item>
-        <item name="android:textColor">@android:color/white</item>
+        <item name="android:textColor">@color/primary_text</item>
         <item name="android:singleLine">true</item>
         <item name="android:layout_weight">1</item>
         <item name="android:layout_width">0dp</item>
@@ -74,7 +75,7 @@
         <item name="android:layout_gravity">center_vertical</item>
         <item name="android:gravity">center</item>
         <item name="android:singleLine">true</item>
-        <item name="android:textColor">@android:color/white</item>
+        <item name="android:textColor">@color/primary_text</item>
         <item name="android:textSize">@dimen/setting_item_text_size</item>
     </style>
     <style name="SettingRow">
@@ -85,31 +86,6 @@
         <item name="android:paddingLeft">@dimen/setting_item_list_margin</item>
         <item name="android:paddingRight">@dimen/setting_item_list_margin</item>
         <item name="android:background">@drawable/setting_picker</item>
-    </style>
-    <style name="SettingKnob">
-        <item name="android:layout_width">@dimen/setting_knob_width</item>
-        <item name="android:layout_height">match_parent</item>
-        <item name="android:layout_gravity">center_vertical</item>
-        <item name="android:gravity">center</item>
-        <item name="android:textColor">@drawable/btn_setting_picker</item>
-        <item name="android:textSize">@dimen/setting_knob_text_size</item>
-        <item name="android:textStyle">bold</item>
-        <item name="android:background">@android:color/transparent</item>
-    </style>
-    <style name="OnScreenIndicator">
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:focusable">false</item>
-        <item name="android:visibility">gone</item>
-        <item name="android:padding">1dp</item>
-    </style>
-    <style name="ViewfinderLableLayout">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">match_parent</item>
-        <item name="android:layout_marginTop">13dp</item>
-        <item name="android:layout_marginBottom">@dimen/indicator_bar_width</item>
-        <item name="android:layout_marginLeft">13dp</item>
-        <item name="android:layout_marginRight">13dp</item>
     </style>
     <style name="OnViewfinderLabel">
         <item name="android:gravity">center</item>
@@ -182,5 +158,66 @@
         <item name="android:layout_height">2dp</item>
         <item name="android:paddingBottom">4dp</item>
         <item name="android:background">@android:drawable/divider_horizontal_dark</item>
+    </style>
+    <style name="TextAppearance.DialogWindowTitle" parent="">
+        <item name="android:textSize">22sp</item>
+        <item name="android:textColor">@color/holo_blue_light</item>
+    </style>
+    <style name="TextAppearance.Medium" parent="@android:style/TextAppearance.Medium"/>
+    <style name="Widget.Button.Borderless" parent="android:Widget.Button">
+        <item name="android:background">@drawable/bg_pressed</item>
+        <item name="android:textAppearance">@style/TextAppearance.Medium</item>
+        <item name="android:textColor">@color/primary_text</item>
+        <item name="android:minHeight">48dip</item>
+        <item name="android:minWidth">64dip</item>
+        <item name="android:paddingLeft">4dip</item>
+        <item name="android:paddingRight">4dip</item>
+    </style>
+
+    <style name="ReviewControlText_xlarge">
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:background">@drawable/bg_pressed_exit_fading</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingLeft">2dp</item>
+        <item name="android:paddingRight">10dp</item>
+        <item name="android:paddingTop">10dp</item>
+        <item name="android:paddingBottom">10dp</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+    <style name="PopupTitleText_xlarge">
+        <item name="android:textSize">@dimen/popup_title_text_size</item>
+        <item name="android:layout_gravity">left|center_vertical</item>
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:textColor">@color/popup_title_color</item>
+        <item name="android:layout_marginLeft">10dp</item>
+    </style>
+    <style name="PanoCustomDialogText_xlarge">
+        <item name="android:textAppearance">@android:style/TextAppearance.Large</item>
+    </style>
+    <style name="ViewfinderLabelLayout_xlarge">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_margin">13dp</item>
+    </style>
+    <style name="SwitcherButton">
+        <item name="android:layout_width">@dimen/switcher_size</item>
+        <item name="android:layout_height">@dimen/switcher_size</item>
+        <item name="android:background">@drawable/bg_pressed_exit_fading</item>
+    </style>
+    <style name="MenuIndicator">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:enabled">false</item>
+        <item name="android:scaleType">center</item>
+    </style>
+        <style name="CameraControls">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
     </style>
 </resources>

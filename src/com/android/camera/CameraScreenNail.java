@@ -16,18 +16,22 @@
 
 package com.android.camera;
 
+import android.annotation.TargetApi;
 import android.graphics.SurfaceTexture;
+import android.opengl.Matrix;
 import android.util.Log;
 
+import com.android.gallery3d.common.ApiHelper;
 import com.android.gallery3d.ui.GLCanvas;
 import com.android.gallery3d.ui.RawTexture;
 import com.android.gallery3d.ui.SurfaceTextureScreenNail;
 
 /*
- * This is a ScreenNail which can displays camera preview.
+ * This is a ScreenNail which can display camera's preview.
  */
+@TargetApi(ApiHelper.VERSION_CODES.HONEYCOMB)
 public class CameraScreenNail extends SurfaceTextureScreenNail {
-    private static final String TAG = "CameraScreenNail";
+    private static final String TAG = "CAM_ScreenNail";
     private static final int ANIM_NONE = 0;
     // Capture animation is about to start.
     private static final int ANIM_CAPTURE_START = 1;
@@ -63,14 +67,133 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
     // mAnimState.
     private Object mLock = new Object();
 
+    private OnFrameDrawnListener mOneTimeFrameDrawnListener;
+    private int mRenderWidth;
+    private int mRenderHeight;
+    // This represents the scaled, uncropped size of the texture
+    // Needed for FaceView
+    private int mUncroppedRenderWidth;
+    private int mUncroppedRenderHeight;
+    private float mScaleX = 1f, mScaleY = 1f;
+    private boolean mFullScreen;
+    private boolean mEnableAspectRatioClamping = false;
+
     public interface Listener {
         void requestRender();
         // Preview has been copied to a texture.
         void onPreviewTextureCopied();
+
+        void onCaptureTextureCopied();
+    }
+
+    public interface OnFrameDrawnListener {
+        void onFrameDrawn(CameraScreenNail c);
     }
 
     public CameraScreenNail(Listener listener) {
         mListener = listener;
+    }
+
+    public void setFullScreen(boolean full) {
+        synchronized (mLock) {
+            mFullScreen = full;
+        }
+    }
+
+    /**
+     * returns the uncropped, but scaled, width of the rendered texture
+     */
+    public int getUncroppedRenderWidth() {
+        return mUncroppedRenderWidth;
+    }
+
+    /**
+     * returns the uncropped, but scaled, width of the rendered texture
+     */
+    public int getUncroppedRenderHeight() {
+        return mUncroppedRenderHeight;
+    }
+
+    @Override
+    public int getWidth() {
+        return mEnableAspectRatioClamping ? mRenderWidth : getTextureWidth();
+    }
+
+    @Override
+    public int getHeight() {
+        return mEnableAspectRatioClamping ? mRenderHeight : getTextureHeight();
+    }
+
+    private int getTextureWidth() {
+        return super.getWidth();
+    }
+
+    private int getTextureHeight() {
+        return super.getHeight();
+    }
+
+    @Override
+    public void setSize(int w, int h) {
+        super.setSize(w,  h);
+        mEnableAspectRatioClamping = false;
+        if (mRenderWidth == 0) {
+            mRenderWidth = w;
+            mRenderHeight = h;
+        }
+        updateRenderSize();
+    }
+
+    /**
+     * Tells the ScreenNail to override the default aspect ratio scaling
+     * and instead perform custom scaling to basically do a centerCrop instead
+     * of the default centerInside
+     * 
+     * Note that calls to setSize will disable this
+     */
+    public void enableAspectRatioClamping() {
+        mEnableAspectRatioClamping = true;
+        updateRenderSize();
+    }
+
+    private void setPreviewLayoutSize(int w, int h) {
+        Log.i(TAG, "preview layout size: "+w+"/"+h);
+        mRenderWidth = w;
+        mRenderHeight = h;
+        updateRenderSize();
+    }
+
+    private void updateRenderSize() {
+        if (!mEnableAspectRatioClamping) {
+            mScaleX = mScaleY = 1f;
+            mUncroppedRenderWidth = getTextureWidth();
+            mUncroppedRenderHeight = getTextureHeight();
+            Log.i(TAG, "aspect ratio clamping disabled");
+            return;
+        }
+
+        float aspectRatio;
+        if (getTextureWidth() > getTextureHeight()) {
+            aspectRatio = (float) getTextureWidth() / (float) getTextureHeight();
+        } else {
+            aspectRatio = (float) getTextureHeight() / (float) getTextureWidth();
+        }
+        float scaledTextureWidth, scaledTextureHeight;
+        if (mRenderWidth > mRenderHeight) {
+            scaledTextureWidth = Math.max(mRenderWidth,
+                    (int) (mRenderHeight * aspectRatio));
+            scaledTextureHeight = Math.max(mRenderHeight,
+                    (int)(mRenderWidth / aspectRatio));
+        } else {
+            scaledTextureWidth = Math.max(mRenderWidth,
+                    (int) (mRenderHeight / aspectRatio));
+            scaledTextureHeight = Math.max(mRenderHeight,
+                    (int) (mRenderWidth * aspectRatio));
+        }
+        mScaleX = mRenderWidth / scaledTextureWidth;
+        mScaleY = mRenderHeight / scaledTextureHeight;
+        mUncroppedRenderWidth = Math.round(scaledTextureWidth);
+        mUncroppedRenderHeight = Math.round(scaledTextureHeight);
+        Log.i(TAG, "aspect ratio clamping enabled, surfaceTexture scale: " + mScaleX + ", " + mScaleY);
     }
 
     @Override
@@ -78,7 +201,7 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
         synchronized (mLock) {
             mFirstFrameArrived = false;
             super.acquireSurfaceTexture();
-            mAnimTexture = new RawTexture(getWidth(), getHeight(), true);
+            mAnimTexture = new RawTexture(getTextureWidth(), getTextureHeight(), true);
         }
     }
 
@@ -108,12 +231,53 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
         }
     }
 
-    public void animateCapture(int animOrientation) {
+    public void animateCapture(int displayRotation) {
         synchronized (mLock) {
-            mCaptureAnimManager.setOrientation(animOrientation);
+            mCaptureAnimManager.setOrientation(displayRotation);
+            mCaptureAnimManager.animateFlashAndSlide();
             mListener.requestRender();
             mAnimState = ANIM_CAPTURE_START;
         }
+    }
+
+    public void animateFlash(int displayRotation) {
+        synchronized (mLock) {
+            mCaptureAnimManager.setOrientation(displayRotation);
+            mCaptureAnimManager.animateFlash();
+            mListener.requestRender();
+            mAnimState = ANIM_CAPTURE_START;
+        }
+    }
+
+    public void animateSlide() {
+        synchronized (mLock) {
+            // Ignore the case where animateFlash is skipped but animateSlide is called
+            // e.g. Double tap shutter and immediately swipe to gallery, and quickly swipe back
+            // to camera. This case only happens in monkey tests, not applicable to normal
+            // human beings.
+            if (mAnimState != ANIM_CAPTURE_RUNNING) {
+                Log.v(TAG, "Cannot animateSlide outside of animateCapture!"
+                        + " Animation state = " + mAnimState);
+                return;
+            }
+            mCaptureAnimManager.animateSlide();
+            mListener.requestRender();
+        }
+    }
+
+    private void callbackIfNeeded() {
+        if (mOneTimeFrameDrawnListener != null) {
+            mOneTimeFrameDrawnListener.onFrameDrawn(this);
+            mOneTimeFrameDrawnListener = null;
+        }
+    }
+
+    @Override
+    protected void updateTransformMatrix(float[] matrix) {
+        super.updateTransformMatrix(matrix);
+        Matrix.translateM(matrix, 0, .5f, .5f, 0);
+        Matrix.scaleM(matrix, 0, mScaleX, mScaleY, 1f);
+        Matrix.translateM(matrix, 0, -.5f, -.5f, 0);
     }
 
     public void directDraw(GLCanvas canvas, int x, int y, int width, int height) {
@@ -127,12 +291,10 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
             SurfaceTexture surfaceTexture = getSurfaceTexture();
             if (surfaceTexture == null || !mFirstFrameArrived) return;
 
-            if (mAnimState == ANIM_NONE) {
-                super.draw(canvas, x, y, width, height);
-                return;
-            }
-
             switch (mAnimState) {
+                case ANIM_NONE:
+                    super.draw(canvas, x, y, width, height);
+                    break;
                 case ANIM_SWITCH_COPY_TEXTURE:
                     copyPreviewTexture(canvas);
                     mSwitchAnimManager.setReviewDrawingSize(width, height);
@@ -148,13 +310,14 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
                     surfaceTexture.updateTexImage();
                     mSwitchAnimManager.drawDarkPreview(canvas, x, y, width,
                             height, mAnimTexture);
-                    return;
+                    break;
                 case ANIM_SWITCH_START:
                     mSwitchAnimManager.startAnimation();
                     mAnimState = ANIM_SWITCH_RUNNING;
                     break;
                 case ANIM_CAPTURE_START:
                     copyPreviewTexture(canvas);
+                    mListener.onCaptureTextureCopied();
                     mCaptureAnimManager.startAnimation(x, y, width, height);
                     mAnimState = ANIM_CAPTURE_RUNNING;
                     break;
@@ -163,7 +326,12 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
             if (mAnimState == ANIM_CAPTURE_RUNNING || mAnimState == ANIM_SWITCH_RUNNING) {
                 boolean drawn;
                 if (mAnimState == ANIM_CAPTURE_RUNNING) {
-                    drawn = mCaptureAnimManager.drawAnimation(canvas, this, mAnimTexture);
+                    if (!mFullScreen) {
+                        // Skip the animation if no longer in full screen mode
+                        drawn = false;
+                    } else {
+                        drawn = mCaptureAnimManager.drawAnimation(canvas, this, mAnimTexture);
+                    }
                 } else {
                     drawn = mSwitchAnimManager.drawAnimation(canvas, x, y,
                             width, height, this, mAnimTexture);
@@ -177,6 +345,7 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
                     super.draw(canvas, x, y, width, height);
                 }
             }
+            callbackIfNeeded();
         } // mLock
     }
 
@@ -189,6 +358,7 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
         canvas.translate(0, height);
         canvas.scale(1, -1, 1);
         getSurfaceTexture().getTransformMatrix(mTextureTransformMatrix);
+        updateTransformMatrix(mTextureTransformMatrix);
         canvas.drawTexture(mExtTexture,
                 mTextureTransformMatrix, 0, 0, width, height);
         canvas.endRenderTarget();
@@ -211,6 +381,9 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
     @Override
     public void onFrameAvailable(SurfaceTexture surfaceTexture) {
         synchronized (mLock) {
+            if (getSurfaceTexture() != surfaceTexture) {
+                return;
+            }
             mFirstFrameArrived = true;
             if (mVisible) {
                 if (mAnimState == ANIM_SWITCH_WAITING_FIRST_FRAME) {
@@ -230,6 +403,14 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
     public void setPreviewFrameLayoutSize(int width, int height) {
         synchronized (mLock) {
             mSwitchAnimManager.setPreviewFrameLayoutSize(width, height);
+            setPreviewLayoutSize(width, height);
+        }
+    }
+
+    public void setOneTimeOnFrameDrawnListener(OnFrameDrawnListener l) {
+        synchronized (mLock) {
+            mFirstFrameArrived = false;
+            mOneTimeFrameDrawnListener = l;
         }
     }
 }

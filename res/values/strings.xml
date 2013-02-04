@@ -13,7 +13,6 @@
      See the License for the specific language governing permissions and
      limitations under the License.
 -->
-
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
     <!-- General strings -->
 
@@ -32,12 +31,6 @@
     <!-- label for the 'video recording application shown in the top level 'all applications' -->
     <string name="video_camera_label">Camcorder</string>
 
-    <!-- label for the folder that contains Camera pictures in the gallery -->
-    <string name="gallery_camera_bucket_name">Camera pictures</string>
-
-    <!-- label for the folder that contains Camera videos in the gallery -->
-    <string name="gallery_camera_videos_bucket_name">Camera videos</string>
-
     <!-- alert to the user to wait for some operation to complete -->
     <string name="wait">Please wait\u2026</string>
 
@@ -45,11 +38,6 @@
     <string name="no_storage" product="nosdcard">Mount USB storage before using the camera.</string>
     <!-- alert to the user that an SD card must be installed before using the camera -->
     <string name="no_storage" product="default">Insert an SD card before using the camera.</string>
-
-    <!-- alert to the user that the USB storage is too full to complete the operation [CHAR LIMIT=NONE] -->
-    <string name="not_enough_space" product="nosdcard">Your USB storage is full.</string>
-    <!-- alert to the user that the SD card is too full to complete the operation -->
-    <string name="not_enough_space" product="default">Your SD card is full.</string>
 
     <!-- alert to the user that the USB storage is being disk-checked [CHAR LIMIT=30] -->
     <string name="preparing_sd" product="nosdcard">Preparing USB storage\u2026</string>
@@ -61,23 +49,11 @@
     <!-- alert to the user that the camera fails to read or write the SD card. -->
     <string name="access_sd_fail" product="default">Couldn\'t access SD card.</string>
 
-    <!-- Confirmation dialog when restoring settings -->
-    <string name="confirm_restore_message">Do you want to restore camera default settings?</string>
-
-    <!-- button in review mode indicating that the video just taken should be played [CHAR LIMIT=10] -->
-    <string name="review_play">Play</string>
-
     <!-- button in review mode indicating that the photo taking, video recording, and panorama saving session should be canceled [CHAR LIMIT=10] -->
     <string name="review_cancel">CANCEL</string>
 
     <!-- button in review mode indicating that the taken photo/video is OK to be attached/uploaded [CHAR LIMIT=10] -->
     <string name="review_ok">DONE</string>
-
-    <!-- button in review mode indicate the user want to retake another photo/video for attachment [CHAR LIMIT=10] -->
-    <string name="review_retake">RETAKE</string>
-
-    <!-- Button indicating to go to the image gallery -->
-    <string name="camera_gallery_photos_text">Gallery</string>
 
     <!-- A label that overlays on top of the preview frame to indicate the camcorder is in time lapse mode [CHAR LIMIT=35] -->
     <string name="time_lapse_title">Time lapse recording</string>
@@ -97,33 +73,35 @@
 
     <string name="pref_camera_recordlocation_default" translatable="false">none</string>
 
-    <!-- Settings screen, Record location dialog choices -->
-    <string name="pref_camera_recordlocation_entry_off">Off</string>
-    <string name="pref_camera_recordlocation_entry_on">On</string>
+    <!-- Entry of a on/off setting. The setting is turned off. [CHAR LIMIT=15] -->
+    <string name="setting_off">Off</string>
+    <!-- Entry of a on/off setting. The setting is turned on. [CHAR LIMIT=15] -->
+    <string name="setting_on">On</string>
+
+    <!-- The value of a camera preference indicating the setting is off. -->
+    <string name="setting_off_value" translatable="false">off</string>
+    <!-- The value of a camera preference indicating the setting is on. -->
+    <string name="setting_on_value" translatable="false">on</string>
 
     <!-- The Video quality settings in preference [CHAR LIMIT=21] -->
     <string name="pref_video_quality_title">Video quality</string>
     <!-- The default quality value is 5 (720p) -->
     <string name="pref_video_quality_default" translatable="false">5</string>
     <!-- Video quality setting entry. Videos will be recorded in 1080p quality. [CHAR LIMIT=24] -->
-    <string name="pref_video_quality_entry_1080p" translatable="false">HD</string>
+    <string name="pref_video_quality_entry_1080p" translatable="false">HD 1080p</string>
     <!-- Video quality setting entry. Videos will be recorded in 720p quality. [CHAR LIMIT=24] -->
-    <string name="pref_video_quality_entry_720p" translatable="false">HD</string>
+    <string name="pref_video_quality_entry_720p" translatable="false">HD 720p</string>
     <!-- Video quality setting entry. Videos will be recorded in 480p quality. [CHAR LIMIT=24] -->
-    <string name="pref_video_quality_entry_480p" translatable="false">SD</string>
+    <string name="pref_video_quality_entry_480p" translatable="false">SD 480p</string>
+    <!-- Video quality setting entry. Videos will be recorded in the highest quality available on the device. [CHAR LIMIT=24] -->
+    <string name="pref_video_quality_entry_high">High</string>
+    <!-- Video quality setting entry. Videos will be recorded in the lowest quality available on the device. [CHAR LIMIT=24] -->
+    <string name="pref_video_quality_entry_low">Low</string>
 
     <!-- Describes the preference dialog for choosing interval between frame capture for
     time lapse recording. Appears at top of the dialog. [CHAR LIMIT=30] -->
-    <string name="pref_video_time_lapse_frame_interval_title">Time lapse interval</string>
+    <string name="pref_video_time_lapse_frame_interval_title">Time lapse</string>
     <string name="pref_video_time_lapse_frame_interval_default" translatable="false">0</string>
-    <!-- The time interval between frame capture for time lapse recording -->
-    <string name="pref_video_time_lapse_frame_interval_entry_1000" translatable="false">1s</string>
-    <string name="pref_video_time_lapse_frame_interval_entry_1500" translatable="false">1.5s</string>
-    <string name="pref_video_time_lapse_frame_interval_entry_2000" translatable="false">2s</string>
-    <string name="pref_video_time_lapse_frame_interval_entry_2500" translatable="false">2.5s</string>
-    <string name="pref_video_time_lapse_frame_interval_entry_3000" translatable="false">3s</string>
-    <string name="pref_video_time_lapse_frame_interval_entry_5000" translatable="false">5s</string>
-    <string name="pref_video_time_lapse_frame_interval_entry_10000" translatable="false">10s</string>
 
     <!-- Settings screen, Camera setting category title -->
     <string name="pref_camera_settings_category">Camera settings</string>
@@ -131,102 +109,39 @@
     <!-- Settings screen, Camcorder setting category title -->
     <string name="pref_camcorder_settings_category">Camcorder settings</string>
 
-    <!-- More Settings screen, power button title -->
-    <string name="pref_camera_power_shutter_title">Power shutter</string>
-    <string name="pref_camera_power_shutter_default" translatable="false">off</string>
-
     <!-- Settings screen, Picture size title -->
     <string name="pref_camera_picturesize_title">Picture size</string>
 
-    <!-- Settings screen, Picture size dialog radio button choices -->
-    <string name="pref_camera_picturesize_entry_4128x3096">13MP</string>
-    <string name="pref_camera_picturesize_entry_4000x3000">12MP</string>
-    <string name="pref_camera_picturesize_entry_4128x2322">10MP</string>
-    <string name="pref_camera_picturesize_entry_4000x2250">9MP</string>
-    <string name="pref_camera_picturesize_entry_3264x2448">8MP</string>
-    <string name="pref_camera_picturesize_entry_3264x1968">6.5MP(W)</string>
-    <string name="pref_camera_picturesize_entry_3264x1952">6MP(W)</string>
-    <string name="pref_camera_picturesize_entry_2592x1936">5MP</string>
-    <string name="pref_camera_picturesize_entry_2592x1552">4MP(W)</string>
-    <string name="pref_camera_picturesize_entry_2560x1712">4MP</string>
-    <string name="pref_camera_picturesize_entry_2304x1728">4MP</string>
-    <string name="pref_camera_picturesize_entry_2048x1536">3MP</string>
-    <string name="pref_camera_picturesize_entry_2048x1216">2.5MP(W)</string>
-    <string name="pref_camera_picturesize_entry_1920x1080">HD1080</string>
-    <string name="pref_camera_picturesize_entry_1600x1200">UXGA</string>
-    <string name="pref_camera_picturesize_entry_1600x960">1.5MP(W)</string>
-    <string name="pref_camera_picturesize_entry_1280x1024">SXGA</string>
-    <string name="pref_camera_picturesize_entry_1280x960">SXGA(4:3)</string>
-    <string name="pref_camera_picturesize_entry_1280x768">WXGA</string>
-    <string name="pref_camera_picturesize_entry_1280x720">HD720</string>
-    <string name="pref_camera_picturesize_entry_1024x768">XGA</string>
-    <string name="pref_camera_picturesize_entry_800x600">SVGA</string>
-    <string name="pref_camera_picturesize_entry_800x480">WVGA</string>
-    <string name="pref_camera_picturesize_entry_640x480">VGA</string>
-    <string name="pref_camera_picturesize_entry_352x288">CIF</string>
-    <string name="pref_camera_picturesize_entry_320x240">QVGA</string>
-    <string name="pref_camera_picturesize_entry_176x144">QCIF</string>
+    <!-- Settings screen, dialog choice for 8 megapixels picture size [CHAR LIMIT=15] -->
+    <string name="pref_camera_picturesize_entry_8mp">8M pixels</string>
+    <!-- Settings screen, dialog choice for 5 megapixels picture size [CHAR LIMIT=15] -->
+    <string name="pref_camera_picturesize_entry_5mp">5M pixels</string>
+    <!-- Settings screen, dialog choice for 3 megapixels picture size [CHAR LIMIT=15] -->
+    <string name="pref_camera_picturesize_entry_3mp">3M pixels</string>
+    <!-- Settings screen, dialog choice for 2 megapixels picture size [CHAR LIMIT=15] -->
+    <string name="pref_camera_picturesize_entry_2mp">2M pixels</string>
+    <!-- Settings screen, dialog choice for 1.3 megapixels picture size [CHAR LIMIT=15] -->
+    <string name="pref_camera_picturesize_entry_1_3mp">1.3M pixels</string>
+    <!-- Settings screen, dialog choice for 1 megapixels picture size [CHAR LIMIT=15] -->
+    <string name="pref_camera_picturesize_entry_1mp">1M pixels</string>
+    <!-- Settings screen, dialog choice for VGA picture size [CHAR LIMIT=15] -->
+    <string name="pref_camera_picturesize_entry_vga">VGA</string>
+    <!-- Settings screen, dialog choice for QVGA picture size [CHAR LIMIT=15] -->
+    <string name="pref_camera_picturesize_entry_qvga">QVGA</string>
 
     <!-- Settings screen, Focus mode title -->
     <string name="pref_camera_focusmode_title">Focus mode</string>
 
     <!-- Settings screen, Focus mode dialog radio button choices -->
     <string name="pref_camera_focusmode_entry_auto">Auto</string>
+    <string name="pref_camera_focusmode_entry_continuouspicture">Continuous Picture</string>
+    <string name="pref_camera_focusmode_entry_extended">Extended</string>
+    <string name="pref_camera_focusmode_entry_facedetect">Face detect</string>
+    <string name="pref_camera_focusmode_entry_facepriority">Face priority</string>
+    <string name="pref_camera_focusmode_entry_fixed">Fixed</string>
     <string name="pref_camera_focusmode_entry_infinity">Infinity</string>
     <string name="pref_camera_focusmode_entry_macro">Macro</string>
-    <string name="pref_camera_focusmode_entry_fixed">Fixed</string>
-    <string name="pref_camera_focusmode_entry_facedetect">Face detect</string>
-    <string name="pref_camera_focusmode_entry_continuouspicture">Continuous Picture</string>
-
-    <!-- Settings screen, ISO -->
-    <string name="pref_camera_iso_title">ISO</string>
-    <string name="pref_camera_iso_default" translatable="false">auto</string>
-
-    <!-- Settings screen, ISO dialog radio button choices -->
-    <string name="pref_camera_iso_entry_auto">Auto</string>
-    <string name="pref_camera_iso_entry_isodeblur">Auto (HJR)</string>
-    <string name="pref_camera_iso_entry_iso1600">1600</string>
-    <string name="pref_camera_iso_entry_iso1200">1200</string>
-    <string name="pref_camera_iso_entry_iso1000">1000</string>
-    <string name="pref_camera_iso_entry_iso800">800</string>
-    <string name="pref_camera_iso_entry_iso400">400</string>
-    <string name="pref_camera_iso_entry_iso200">200</string>
-    <string name="pref_camera_iso_entry_iso100">100</string>
-    <string name="pref_camera_iso_entry_iso50">50</string>
-
-    <!-- Settings screen, Timer mode title -->
-    <string name="pref_camera_timer_title">Timer mode</string>
-    <string name="pref_camera_timer_default" translatable="false">0</string>
-
-    <!-- Settings screen, Timer mode entries -->
-    <string name="pref_camera_timer_entry_0">Off</string>
-    <string name="pref_camera_timer_entry_10">10s</string>
-    <string name="pref_camera_timer_entry_20">20s</string>
-    <string name="pref_camera_timer_entry_30">30s</string>
-    <string name="pref_camera_timer_entry_40">40s</string>
-    <string name="pref_camera_timer_entry_50">50s</string>
-    <string name="pref_camera_timer_entry_60">60s</string>
-
-    <!-- Settings screen, Burst mode title -->
-    <string name="pref_camera_burst_title">Burst mode</string>
-    <string name="pref_camera_burst_default" translatable="false">1</string>
-
-    <!-- Settings screen, Burst mode entries -->
-    <string name="pref_camera_burst_entry_off">Off</string>
-    <string name="pref_camera_burst_entry_5">5 shots</string>
-    <string name="pref_camera_burst_entry_10">10 shots</string>
-    <string name="pref_camera_burst_entry_15">15 shots</string>
-    <string name="pref_camera_burst_entry_20">20 shots</string>
-
-    <!-- Settings screen, JPEG -->
-    <string name="pref_camera_jpeg_title">JPEG</string>
-    <string name="pref_camera_jpeg_default" translatable="false">90</string>
-
-    <!-- Settings screen, JPEG dialog radio button choices -->
-    <string name="pref_camera_jpeg_entry_super">Super</string>
-    <string name="pref_camera_jpeg_entry_high">High</string>
-    <string name="pref_camera_jpeg_entry_medium">Medium</string>
-    <string name="pref_camera_jpeg_entry_low">Low</string>
+    <string name="pref_camera_focusmode_entry_portrait">Portrait</string>
 
     <!-- Default flash mode setting.-->
     <string name="pref_camera_flashmode_default" translatable="false">auto</string>
@@ -257,7 +172,6 @@
     <string name="pref_camera_whitebalance_entry_daylight">Daylight</string>
     <string name="pref_camera_whitebalance_entry_fluorescent">Fluorescent</string>
     <string name="pref_camera_whitebalance_entry_cloudy">Cloudy</string>
-    <string name="pref_camera_whitebalance_entry_cloudydaylight">Cloudy-Daylight</string>
 
     <!-- Default scene mode setting. -->
     <string name="pref_camera_scenemode_default" translatable="false">auto</string>
@@ -265,31 +179,51 @@
     <!-- Settings screen, Select Scene mode -->
     <string name="pref_camera_scenemode_title">Scene mode</string>
 
-    <!-- Settings menu, scene mode choices -->
+    <!-- Settings menu, scene mode choices [CHAR LIMIT=16] -->
     <string name="pref_camera_scenemode_entry_auto">Auto</string>
-    <!-- Scene mode that takes an image quickly with little motion blur. -->
+    <!-- Scene mode that uses HDR (high dynamic range) [CHAR LIMIT=16] -->
+    <string name="pref_camera_scenemode_entry_hdr">HDR</string>
+    <!-- Scene mode that takes an image quickly with little motion blur. [CHAR LIMIT=16] -->
     <string name="pref_camera_scenemode_entry_action">Action</string>
-    <!-- Scene mode that takes long exposures to capture night scenes without flash. -->
+    <!-- Scene mode that takes long exposures to capture night scenes without flash. [CHAR LIMIT=16] -->
     <string name="pref_camera_scenemode_entry_night">Night</string>
-    <!-- Scene mode optimized for taking images in the sunset. -->
+    <string name="pref_camera_scenemode_entry_nightportrait">Night Portrait</string>
+    <string name="pref_camera_scenemode_entry_nightindoor">Night indoor</string>
+    <string name="pref_camera_scenemode_entry_supernight">Black night</string>
+    <!-- Scene mode optimized for taking images in the sunset. [CHAR LIMIT=16] -->
     <string name="pref_camera_scenemode_entry_sunset">Sunset</string>
     <!-- Scene mode optimized for taking indoor low-lights pictures. [CHAR LIMIT=16] -->
     <string name="pref_camera_scenemode_entry_party">Party</string>
-    <string name="pref_camera_scenemode_entry_backlight">Backlight</string>
     <string name="pref_camera_scenemode_entry_duskdawn">Duskdawn</string>
+    <string name="pref_camera_scenemode_entry_candlelight">Candlelight</string>
     <string name="pref_camera_scenemode_entry_fallcolor">Fallcolor</string>
+    <string name="pref_camera_scenemode_entry_closeup">Closeup</string>
+    <string name="pref_camera_scenemode_entry_landscape">Landscape</string>
+    <string name="pref_camera_scenemode_entry_aqua">Aqua</string>
+    <string name="pref_camera_scenemode_entry_sports">Sports</string>
+    <string name="pref_camera_scenemode_entry_mood">Mood</string>
+    <string name="pref_camera_scenemode_entry_fireworks">Fireworks</string>
+    <string name="pref_camera_scenemode_entry_cine">Cine</string>
+    <string name="pref_camera_scenemode_entry_oldfilm">Old film</string>
+    <string name="pref_camera_scenemode_entry_beach">Beach</string>
+    <string name="pref_camera_scenemode_entry_portrait">Portrait</string>
+    <string name="pref_camera_scenemode_entry_snow">Snow</string>
+    <string name="pref_camera_scenemode_entry_steadyphoto">Steadyphoto</string>
+    <string name="pref_camera_scenemode_entry_theatre">Theatre</string>
+    <string name="pref_camera_scenemode_entry_backlight">Backlight</string>
+    <string name="pref_camera_scenemode_entry_document">Document</string>
+    <string name="pref_camera_scenemode_entry_barcode">Barcode</string>
     <string name="pref_camera_scenemode_entry_text">Text</string>
 
     <!-- Toast after trying to select a setting that is not allowed to change in scene mode [CHAR LIMIT=NONE] -->
     <string name="not_selectable_in_scene_mode">Not selectable in scene mode.</string>
 
-    <!-- Restore settings item in preference -->
-    <string name="pref_restore_title">Camera settings</string>
-    <string name="pref_restore_detail">Restore defaults</string>
-
     <!-- Exposure settings in preference -->
     <string name="pref_exposure_title">Exposure</string>
     <string name="pref_exposure_default" translatable="false">0</string>
+
+    <!-- Default HDR entry value -->
+    <string name="pref_camera_hdr_default" translatable="false">@string/setting_off_value</string>
 
     <!-- Dialog "OK" button. Dismisses dialog. -->
     <string name="dialog_ok">OK</string>
@@ -311,21 +245,6 @@
     <!-- The message shown when video record reaches size limit. -->
     <string name="video_reach_size_limit">Size limit reached.</string>
 
-    <string name="setting_increment" translatable="false">&gt;</string>
-    <string name="setting_decrement" translatable="false">&lt;</string>
-
-    <!-- Title of the dialog showing a list of applications that can share the captured picture. [CHAR LIMIT=30] -->
-    <string name="share_picture_via">Share picture via</string>
-
-    <!-- Title of the dialog showing a list of applications that can share the captured video. [CHAR LIMIT=30] -->
-    <string name="share_video_via">Share video via</string>
-
-    <!-- Toast saying that there is no picture to share. [CHAR LIMIT=30] -->
-    <string name="no_picture_to_share">No picture to share.</string>
-
-    <!-- Toast saying that there is no video to share. [CHAR LIMIT=30] -->
-    <string name="no_video_to_share">No video to share.</string>
-
     <!-- The text shown when the panorama panning speed is to fast [CHAR LIMIT=12] -->
     <string name="pano_too_fast_prompt">Too fast</string>
 
@@ -346,6 +265,9 @@
 
     <!-- The text shown on the bottom-left corner of the screen to indicate that the saving is in process [CHAR LIMIT=13] -->
     <string name="pano_review_saving_indication_str">Saving\u2026</string>
+
+    <!-- The text shown on the screen to indicate that the panorama is rendering [CHAR LIMIT=27] -->
+    <string name="pano_review_rendering">Rendering panorama</string>
 
     <!-- Toast telling users tapping on the viewfinder will trigger autofocus [CHAR LIMIT=28] -->
     <string name="tap_to_focus">Touch to focus.</string>
@@ -380,8 +302,6 @@
     <!-- Message displayed in overlay during background replacement training [CHAR LIMIT=180]-->
     <string name="bg_replacement_message">Set your device down.\nStep out of view for a moment.</string>
 
-    <!-- Toast after trying to select a setting that is not allowed to change in effect [CHAR LIMIT=50] -->
-    <string name="not_selectable_in_effect">Not selectable when effect is on.</string>
 
     <!-- Toast telling users tapping on the viewfinder will take a picture [CHAR LIMIT=54] -->
     <string name="video_snapshot_hint">Touch to take photo while recording.</string>
@@ -400,6 +320,8 @@
 
     <!-- The shutter button. [CHAR LIMIT = NONE] -->
     <string name="accessibility_shutter_button">Shutter button</string>
+    <!-- The menu button. [CHAR LIMIT = NONE] -->
+    <string name="accessibility_menu_button">Menu button</string>
     <!-- The button to review the thumbnail. [CHAR LIMIT = NONE] -->
     <string name="accessibility_review_thumbnail">Most recent photo</string>
     <!-- The front/back camera switch. [CHAR LIMIT = NONE] -->
@@ -424,41 +346,161 @@
     <string name="accessibility_switch_to_video">Switch to video</string>
     <!-- The button to switch to Panorama mode. [CHAR LIMIT = NONE] -->
     <string name="accessibility_switch_to_panorama">Switch to panorama</string>
+    <!-- The button to switch to new Panorama mode. [CHAR LIMIT = NONE] -->
+    <string name="accessibility_switch_to_new_panorama">Switch to new panorama</string>
+    <!-- The button in review mode indicating that the photo taking, video recording, and panorama saving session should be canceled [CHAR LIMIT = NONE] -->
+    <string name="accessibility_review_cancel">Review cancel</string>
+    <!-- The button in review mode indicating that the taken photo/video is OK to be attached/uploaded [CHAR LIMIT = NONE] -->
+    <string name="accessibility_review_ok">Review done</string>
+    <!-- button in review mode indicate the user want to retake another photo/video for attachment [
+CHAR LIMIT = NONE] -->
+    <string name="accessibility_review_retake">Review retake</string>
     <!-- TODO: remove the string as it is a work-around solution to bypass the default speak of the element type. -->
     <string name="empty" translatable="false">" "</string>
 
-    <!-- Default auto exposure setting. Do not translate. -->
-    <string name="pref_camera_autoexposure_default" translatable="false">center</string>
-    <!-- Settings screen, Select auto exposure title -->
-    <string name="pref_camera_autoexposure_title">Auto exposure mode</string>
+    <!-- Default text for a button that can be toggled on and off. -->
+    <string name="capital_on">ON</string>
+    <!-- Default text for a button that can be toggled on and off. -->
+    <string name="capital_off">OFF</string>
 
-    <!-- Settings screen, auto exposure dialog radio button choices -->
-    <string name="pref_camera_autoexposure_entry_frameaverage">Frame average</string>
-    <string name="pref_camera_autoexposure_entry_centerweighted">Center weighted</string>
-    <string name="pref_camera_autoexposure_entry_spotmetering">Spot metering</string>
-    <string name="pref_camera_autoexposure_entry_matrix">Matrix</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_off">Off</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_500">0.5 seconds</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_1000">1 second</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_1500">1.5 seconds</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_2000">2 seconds</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_2500">2.5 seconds</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_3000">3 seconds</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_4000">4 seconds</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_5000">5 seconds</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_6000">6 seconds</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_10000">10 seconds</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_12000">12 seconds</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_15000">15 seconds</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_24000">24 seconds</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_30000">0.5 minutes</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_60000">1 minute</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_90000">1.5 minutes</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_120000">2 minutes</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_150000">2.5 minutes</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_180000">3 minutes</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_240000">4 minutes</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_300000">5 minutes</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_360000">6 minutes</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_600000">10 minutes</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_720000">12 minutes</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_900000">15 minutes</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_1440000">24 minutes</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_1800000">0.5 hours</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_3600000">1 hour</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_5400000">1.5 hour</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_7200000">2 hours</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_9000000">2.5 hours</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_10800000">3 hours</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_14400000">4 hours</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_18000000">5 hours</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_21600000">6 hours</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_36000000">10 hours</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_43200000">12 hours</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_54000000">15 hours</string>
+    <!-- Text to indicate time lapse recording frame interval [CHAR LIMIT = 30] -->
+    <string name="pref_video_time_lapse_frame_interval_86400000">24 hours</string>
 
-    <!-- Default redeye reduction setting. -->
-    <string name="pref_camera_redeyereduction_default" translatable="false">disable</string>
+    <!-- Seconds: a unit of time for time lapse intervals. [CHAR LIMIT = 20] -->
+    <string name="time_lapse_seconds">seconds</string>
+    <!-- Minutes: a unit of time for time lapse intervals. [CHAR LIMIT = 20] -->
+    <string name="time_lapse_minutes">minutes</string>
+    <!-- Hours: a unit of time for time lapse intervals. [CHAR LIMIT = 20] -->
+    <string name="time_lapse_hours">hours</string>
 
-    <!-- Settings screen, Select Redeye Reduction -->
-    <string name="pref_camera_redeyereduction_title">Redeye reduction</string>
+    <!-- The button to confirm time-lapse setting changes. [CHAR LIMIT = 20] -->
+    <string name="time_lapse_interval_set">Done</string>
+    <!-- Title in time interval picker for setting time interval. [CHAR LIMIT = 30]-->
+    <string name="set_time_interval">Set Time Interval</string>
+    <!-- Help text that is shown when the time lapse feature is turned off. [CHAR LIMIT = 180]-->
+    <string name="set_time_interval_help">Time lapse feature is off. Turn it on to set time interval."</string>
 
-    <!-- Settings menu, redeye reduction choices -->
-    <string name="pref_camera_redeyereduction_entry_enable">Enable</string>
-    <string name="pref_camera_redeyereduction_entry_disable">Disable</string>
+    <!-- Title for first run dialog asking if the user wants to remember photo locations [CHAR LIMIT = 50] -->
+    <string name="remember_location_title">Remember photo locations?</string>
+    <!-- Message for first run dialog asking if the user wants to remember photo locations [CHAR LIMIT = None] -->
+    <string name="remember_location_prompt">Tag your photos and videos with the locations where they are taken.\n\nOther apps can access this information along with your saved images.</string>
+    <!-- Negative answer for first run dialog asking if the user wants to remember photo locations [CHAR LIMIT = 20] -->
+    <string name="remember_location_no">No thanks</string>
+    <!-- Positive answer for first run dialog asking if the user wants to remember photo locations [CHAR LIMIT = 20] -->
+    <string name="remember_location_yes">Yes</string>
 
-    <!-- Settings screen, Anti Banding title -->
-    <string name="pref_camera_antibanding_title">Anti-banding</string>
+     <!-- More Settings screen, power button title -->
+     <string name="pref_camera_power_shutter_title">Power shutter</string>
+     <string name="pref_camera_power_shutter_default" translatable="false">off</string>
 
-    <!-- Default Anti Banding setting. -->
-    <string name="pref_camera_antibanding_default">auto</string>
+     <!-- Settings screen, ISO -->
+     <string name="pref_camera_iso_title" translatable="false">ISO</string>
+     <string name="pref_camera_iso_default" translatable="false">auto</string>
 
-    <!-- Settings screen, Anti Banding entries -->
-    <string name="pref_camera_antibanding_entry_0">Off</string>
-    <string name="pref_camera_antibanding_entry_1">50 Hz</string>
-    <string name="pref_camera_antibanding_entry_2">60 Hz</string>
-    <string name="pref_camera_antibanding_entry_3">Auto</string>
+     <!-- Settings screen, ISO dialog radio button choices -->
+     <string name="pref_camera_iso_entry_auto">Auto</string>
+     <string name="pref_camera_iso_entry_isodeblur">Auto (HJR)</string>
+     <string name="pref_camera_iso_entry_isosports">Sports</string>
+     <string name="pref_camera_iso_entry_isonight">Night</string>
+     <string name="pref_camera_iso_entry_isomovie">Movie</string>
+     <string name="pref_camera_iso_entry_iso6400" translatable="false">6400</string>
+     <string name="pref_camera_iso_entry_iso3200" translatable="false">3200</string>
+     <string name="pref_camera_iso_entry_iso1600" translatable="false">1600</string>
+     <string name="pref_camera_iso_entry_iso1200" translatable="false">1200</string>
+     <string name="pref_camera_iso_entry_iso1000" translatable="false">1000</string>
+     <string name="pref_camera_iso_entry_iso800" translatable="false">800</string>
+     <string name="pref_camera_iso_entry_iso400" translatable="false">400</string>
+     <string name="pref_camera_iso_entry_iso200" translatable="false">200</string>
+     <string name="pref_camera_iso_entry_iso100" translatable="false">100</string>
+     <string name="pref_camera_iso_entry_iso50" translatable="false">50</string>
+
+    <!-- Settings screen, JPEG Quality -->
+    <string name="pref_camera_jpeg_title">JPEG Quality</string>
+    <string name="pref_camera_jpeg_default" translatable="false">90</string>
+
+    <!-- Settings screen, JPEG dialog radio button choices -->
+    <string name="pref_camera_jpeg_entry_super">Super</string>
+    <string name="pref_camera_jpeg_entry_high">High</string>
+    <string name="pref_camera_jpeg_entry_medium">Medium</string>
+    <string name="pref_camera_jpeg_entry_low">Low</string>
 
     <!-- Settings screen, Select Color effect title -->
     <string name="pref_camera_coloreffect_title">Color effect</string>
@@ -483,31 +525,28 @@
     <string name="pref_camera_coloreffect_entry_bluetint">Blue tint</string>
     <string name="pref_camera_coloreffect_entry_greentint">Green tint</string>
 
-    <string name="pref_camera_scenemode_entry_asd">ASD</string>
-    <string name="pref_camera_scenemode_entry_portrait">Portrait</string>
-    <string name="pref_camera_scenemode_entry_landscape">Landscape</string>
-    <string name="pref_camera_scenemode_entry_night_portrait">Night Portrait</string>
-    <string name="pref_camera_scenemode_entry_theatre">Theatre</string>
-    <string name="pref_camera_scenemode_entry_beach">Beach</string>
-    <string name="pref_camera_scenemode_entry_snow">Snow</string>
-    <string name="pref_camera_scenemode_entry_steadyphoto">Steady Photo</string>
-    <string name="pref_camera_scenemode_entry_fireworks">Fireworks</string>
-    <string name="pref_camera_scenemode_entry_sports">Sports</string>
-    <string name="pref_camera_scenemode_entry_candlelight">Candlelight</string>
-    <string name="pref_camera_scenemode_entry_flowers">Flowers</string>
-    <string name="pref_camera_scenemode_entry_ar">AR</string>
+    <!-- Settings screen, Burst mode title -->
+    <string name="pref_camera_burst_title">Burst mode</string>
+    <string name="pref_camera_burst_default" translatable="false">1</string>
 
-    <!-- Other settings -->
-    <string name="pref_camera_focus_title">Touch focus duration</string>
-    <string name="pref_camera_focus_summary">Select duration for touch focus</string>
-    <string name="pref_camera_focus_default" translatable="false">15</string>
+    <!-- Settings screen, Burst mode entries -->
+    <string name="pref_camera_burst_entry_off">Off</string>
+    <string name="pref_camera_burst_entry_5">5 shots</string>
+    <string name="pref_camera_burst_entry_10">10 shots</string>
+    <string name="pref_camera_burst_entry_15">15 shots</string>
+    <string name="pref_camera_burst_entry_20">20 shots</string>
+
+    <!-- Touch-to-focus duration settings -->
+    <string name="pref_camera_focustime_title">Touch focus duration</string>
+    <string name="pref_camera_focustime_summary">Select duration for touch focus</string>
+    <string name="pref_camera_focustime_default" translatable="false">5000</string>
 
     <!-- Settings screen, Timer mode entries -->
-    <string name="pref_camera_focus_entry_10">10s</string>
-    <string name="pref_camera_focus_entry_15">15s</string>
-    <string name="pref_camera_focus_entry_20">20s</string>
-    <string name="pref_camera_focus_entry_30">30s</string>
-    <string name="pref_camera_focus_entry_40">40s</string>
-    <string name="pref_camera_focus_entry_infinit">Infinite</string>
+    <string name="pref_camera_focustime_entry_5">5s</string>
+    <string name="pref_camera_focustime_entry_10">10s</string>
+    <string name="pref_camera_focustime_entry_15">15s</string>
+    <string name="pref_camera_focustime_entry_20">20s</string>
+    <string name="pref_camera_focustime_entry_30">30s</string>
+    <string name="pref_camera_focustime_entry_infinite">Infinite</string>
 
 </resources>

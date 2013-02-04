@@ -16,6 +16,7 @@
 
 package com.android.camera;
 
+import android.annotation.TargetApi;
 import android.graphics.SurfaceTexture;
 import android.os.ConditionVariable;
 import android.os.Handler;
@@ -24,6 +25,8 @@ import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
 
+import com.android.gallery3d.common.ApiHelper;
+
 import javax.microedition.khronos.egl.EGL10;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.egl.EGLContext;
@@ -31,16 +34,15 @@ import javax.microedition.khronos.egl.EGLDisplay;
 import javax.microedition.khronos.egl.EGLSurface;
 import javax.microedition.khronos.opengles.GL10;
 
+@TargetApi(ApiHelper.VERSION_CODES.HONEYCOMB) // uses SurfaceTexture
 public class MosaicPreviewRenderer {
     private static final String TAG = "MosaicPreviewRenderer";
     private static final int EGL_CONTEXT_CLIENT_VERSION = 0x3098;
     private static final boolean DEBUG = false;
 
-    private int mWidth;
-    private int mHeight;
-    private boolean mPaused;
+    private int mWidth; // width of the view in UI
+    private int mHeight; // height of the view in UI
 
-    private int mTextureId;
     private boolean mIsLandscape = true;
     private final float[] mTransformMatrix = new float[16];
 
@@ -61,7 +63,7 @@ public class MosaicPreviewRenderer {
         public static final int MSG_INIT_EGL_SYNC = 0;
         public static final int MSG_SHOW_PREVIEW_FRAME_SYNC = 1;
         public static final int MSG_SHOW_PREVIEW_FRAME = 2;
-        public static final int MSG_ALIGN_FRAME = 3;
+        public static final int MSG_ALIGN_FRAME_SYNC = 3;
         public static final int MSG_RELEASE = 4;
 
         public EGLHandler(Looper looper) {
@@ -82,8 +84,9 @@ public class MosaicPreviewRenderer {
                 case MSG_SHOW_PREVIEW_FRAME:
                     doShowPreviewFrame();
                     break;
-                case MSG_ALIGN_FRAME:
+                case MSG_ALIGN_FRAME_SYNC:
                     doAlignFrame();
+                    mEglThreadBlockVar.open();
                     break;
                 case MSG_RELEASE:
                     doRelease();
@@ -163,8 +166,15 @@ public class MosaicPreviewRenderer {
             mEglSurface = null;
             mEglContext = null;
             mEglDisplay = null;
-            mInputSurfaceTexture.release();
+            releaseSurfaceTexture(mInputSurfaceTexture);
             mEglThread.quit();
+        }
+
+        @TargetApi(ApiHelper.VERSION_CODES.ICE_CREAM_SANDWICH)
+        private void releaseSurfaceTexture(SurfaceTexture st) {
+            if (ApiHelper.HAS_RELEASE_SURFACE_TEXTURE) {
+                st.release();
+            }
         }
 
         // Should be called from other thread.
@@ -204,8 +214,8 @@ public class MosaicPreviewRenderer {
         mEglHandler.sendEmptyMessage(EGLHandler.MSG_SHOW_PREVIEW_FRAME);
     }
 
-    public void alignFrame() {
-        mEglHandler.sendEmptyMessage(EGLHandler.MSG_ALIGN_FRAME);
+    public void alignFrameSync() {
+        mEglHandler.sendMessageSync(EGLHandler.MSG_ALIGN_FRAME_SYNC);
     }
 
     public SurfaceTexture getInputSurfaceTexture() {

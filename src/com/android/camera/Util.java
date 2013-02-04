@@ -16,6 +16,7 @@
 
 package com.android.camera;
 
+import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.admin.DevicePolicyManager;
@@ -42,14 +43,16 @@ import android.telephony.TelephonyManager;
 import android.util.DisplayMetrics;
 import android.util.FloatMath;
 import android.util.Log;
+import android.util.TypedValue;
 import android.view.Display;
 import android.view.OrientationEventListener;
 import android.view.Surface;
 import android.view.View;
-import android.view.Window;
 import android.view.WindowManager;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
+
+import com.android.gallery3d.common.ApiHelper;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -69,6 +72,59 @@ public class Util {
     public static final int ORIENTATION_HYSTERESIS = 5;
 
     public static final String REVIEW_ACTION = "com.android.camera.action.REVIEW";
+    // See android.hardware.Camera.ACTION_NEW_PICTURE.
+    public static final String ACTION_NEW_PICTURE = "android.hardware.action.NEW_PICTURE";
+    // See android.hardware.Camera.ACTION_NEW_VIDEO.
+    public static final String ACTION_NEW_VIDEO = "android.hardware.action.NEW_VIDEO";
+
+    // Fields from android.hardware.Camera.Parameters
+    public static final String FOCUS_MODE_CONTINUOUS_PICTURE = "continuous-picture";
+    public static final String RECORDING_HINT = "recording-hint";
+    private static final String AUTO_EXPOSURE_LOCK_SUPPORTED = "auto-exposure-lock-supported";
+    private static final String AUTO_WHITE_BALANCE_LOCK_SUPPORTED = "auto-whitebalance-lock-supported";
+    private static final String VIDEO_SNAPSHOT_SUPPORTED = "video-snapshot-supported";
+    public static final String SCENE_MODE_HDR = "hdr";
+    public static final String TRUE = "true";
+    public static final String FALSE = "false";
+
+    public static boolean isSupported(String value, List<String> supported) {
+        return supported == null ? false : supported.indexOf(value) >= 0;
+    }
+
+    public static boolean isAutoExposureLockSupported(Parameters params) {
+        return TRUE.equals(params.get(AUTO_EXPOSURE_LOCK_SUPPORTED));
+    }
+
+    public static boolean isAutoWhiteBalanceLockSupported(Parameters params) {
+        return TRUE.equals(params.get(AUTO_WHITE_BALANCE_LOCK_SUPPORTED));
+    }
+
+    public static boolean isVideoSnapshotSupported(Parameters params) {
+        return TRUE.equals(params.get(VIDEO_SNAPSHOT_SUPPORTED));
+    }
+
+    public static boolean isCameraHdrSupported(Parameters params) {
+        List<String> supported = params.getSupportedSceneModes();
+        return (supported != null) && supported.contains(SCENE_MODE_HDR);
+    }
+
+    @TargetApi(ApiHelper.VERSION_CODES.ICE_CREAM_SANDWICH)
+    public static boolean isMeteringAreaSupported(Parameters params) {
+        if (ApiHelper.HAS_CAMERA_METERING_AREA) {
+            return params.getMaxNumMeteringAreas() > 0;
+        }
+        return false;
+    }
+
+    @TargetApi(ApiHelper.VERSION_CODES.ICE_CREAM_SANDWICH)
+    public static boolean isFocusAreaSupported(Parameters params) {
+        if (ApiHelper.HAS_CAMERA_FOCUS_AREA) {
+            return (params.getMaxNumFocusAreas() > 0
+                    && isSupported(Parameters.FOCUS_MODE_AUTO,
+                            params.getSupportedFocusModes()));
+        }
+        return false;
+    }
 
     // Private intent extras. Test only.
     private static final String EXTRAS_CAMERA_FACING =
@@ -77,26 +133,24 @@ public class Util {
     private static float sPixelDensity = 1;
     private static ImageFileNamer sImageFileNamer;
 
-    // For setting video desired profile size
-    private static boolean sProfileVideoSize;
+    // Samsung camcorder mode
+    private static boolean sSamsungCamMode;
+
+    // HTC camcorder mode
+    private static boolean sHTCCamMode;
 
     // For setting video size before recording starts
     private static boolean sEarlyVideoSize;
 
-    // Samsung camcorder mode
-    private static boolean sSamsungCamMode;
-    private static boolean sSamsungCamSettings;
-    
-    // HTC camcorder mode
-    private static boolean sHTCCamMode;
+    // For setting video desired profile size
+    private static boolean sProfileVideoSize;
 
     // Samsung ZSL mode
     private static boolean sEnableZSL;
 
     // Workaround for QC cameras with broken face detection on front camera
     private static boolean sNoFaceDetectOnFrontCamera;
-    private static boolean sNoFaceDetectOnRearCamera;
-    
+
     private Util() {
     }
 
@@ -110,24 +164,17 @@ public class Util {
                 context.getString(R.string.image_file_name_format));
 
         // These come from the config, but are needed before parameters are set.
+        sSamsungCamMode = context.getResources().getBoolean(R.bool.needsSamsungCamMode);
+        sHTCCamMode = context.getResources().getBoolean(R.bool.needsHTCCamMode);
         sProfileVideoSize = context.getResources().getBoolean(R.bool.useProfileVideoSize);
         sEarlyVideoSize = context.getResources().getBoolean(R.bool.needsEarlyVideoSize);
-        sSamsungCamMode = context.getResources().getBoolean(R.bool.needsSamsungCamMode);
-        sSamsungCamSettings = context.getResources().getBoolean(R.bool.hasSamsungCamSettings);
-        sHTCCamMode = context.getResources().getBoolean(R.bool.needsHTCCamMode);
         sEnableZSL = context.getResources().getBoolean(R.bool.enableZSL);
         sNoFaceDetectOnFrontCamera = context.getResources().getBoolean(
                 R.bool.noFaceDetectOnFrontCamera);
-        sNoFaceDetectOnRearCamera = context.getResources().getBoolean(
-                R.bool.noFaceDetectOnRearCamera);
     }
 
-    public static boolean useProfileVideoSize() {
-        return sProfileVideoSize;
-    }
-
-    public static boolean needsEarlyVideoSize() {
-        return sEarlyVideoSize;
+    public static int dpToPixel(int dp) {
+        return Math.round(sPixelDensity * dp);
     }
 
     public static boolean useHTCCamMode() {
@@ -138,18 +185,12 @@ public class Util {
         return sSamsungCamMode;
     }
 
-    public static boolean useSamsungCamSettings() {
-        return sSamsungCamSettings;
+    public static boolean useProfileVideoSize() {
+        return sProfileVideoSize;
     }
 
-    public static int dpToPixel(int dp) {
-        return Math.round(sPixelDensity * dp);
-    }
-
-    // Rotates the bitmap by the specified degree.
-    // If a new bitmap is created, the original bitmap is recycled.
-    public static Bitmap rotate(Bitmap b, int degrees) {
-        return rotateAndMirror(b, degrees, false);
+    public static boolean needsEarlyVideoSize() {
+        return sEarlyVideoSize;
     }
 
     public static boolean enableZSL() {
@@ -160,8 +201,10 @@ public class Util {
         return sNoFaceDetectOnFrontCamera;
     }
 
-    public static boolean noFaceDetectOnRearCamera() {
-        return sNoFaceDetectOnRearCamera;
+    // Rotates the bitmap by the specified degree.
+    // If a new bitmap is created, the original bitmap is recycled.
+    public static Bitmap rotate(Bitmap b, int degrees) {
+        return rotateAndMirror(b, degrees, false);
     }
 
     // Rotates and/or mirrors the bitmap. If a new bitmap is created, the
@@ -303,14 +346,21 @@ public class Util {
         }
     }
 
+    @TargetApi(ApiHelper.VERSION_CODES.ICE_CREAM_SANDWICH)
+    private static void throwIfCameraDisabled(Activity activity) throws CameraDisabledException {
+        // Check if device policy has disabled the camera.
+        if (ApiHelper.HAS_GET_CAMERA_DISABLED) {
+            DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(
+                    Context.DEVICE_POLICY_SERVICE);
+            if (dpm.getCameraDisabled(null)) {
+                throw new CameraDisabledException();
+            }
+        }
+    }
+
     public static CameraManager.CameraProxy openCamera(Activity activity, int cameraId)
             throws CameraHardwareException, CameraDisabledException {
-        // Check if device policy has disabled the camera.
-        DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(
-                Context.DEVICE_POLICY_SERVICE);
-        if (dpm.getCameraDisabled(null)) {
-            throw new CameraDisabledException();
-        }
+        throwIfCameraDisabled(activity);
 
         try {
             return CameraHolder.instance().open(cameraId);
@@ -333,12 +383,14 @@ public class Util {
                 activity.finish();
             }
         };
+        TypedValue out = new TypedValue();
+        activity.getTheme().resolveAttribute(android.R.attr.alertDialogIcon, out, true);
         new AlertDialog.Builder(activity)
                 .setCancelable(false)
-                .setIconAttribute(android.R.attr.alertDialogIcon)
                 .setTitle(R.string.camera_error_title)
                 .setMessage(msgId)
                 .setNeutralButton(R.string.dialog_ok, buttonListener)
+                .setIcon(out.resourceId)
                 .show();
     }
 
@@ -421,39 +473,47 @@ public class Util {
         return orientationHistory;
     }
 
+    @SuppressWarnings("deprecation")
+    @TargetApi(Build.VERSION_CODES.HONEYCOMB_MR2)
+    private static Point getDefaultDisplaySize(Activity activity, Point size) {
+        Display d = activity.getWindowManager().getDefaultDisplay();
+        if (Build.VERSION.SDK_INT >= ApiHelper.VERSION_CODES.HONEYCOMB_MR2) {
+            d.getSize(size);
+        } else {
+            size.set(d.getWidth(), d.getHeight());
+        }
+        return size;
+    }
+
     public static Size getOptimalPreviewSize(Activity currentActivity,
             List<Size> sizes, double targetRatio) {
         // Use a very small tolerance because we want an exact match.
-        final double ASPECT_TOLERANCE = 0.014;
+        final double ASPECT_TOLERANCE = 0.001;
         if (sizes == null) return null;
+
         Size optimalSize = null;
         double minDiff = Double.MAX_VALUE;
-        double minAspectRatioDiff = Double.MAX_VALUE;
+
         // Because of bugs of overlay and layout, we sometimes will try to
         // layout the viewfinder in the portrait orientation and thus get the
         // wrong size of preview surface. When we change the preview size, the
         // new overlay will be created before the old one closed, which causes
         // an exception. For now, just get the screen size.
-        Display display = currentActivity.getWindowManager().getDefaultDisplay();
-        Point point = new Point();
-        display.getSize(point);
+        Point point = getDefaultDisplaySize(currentActivity, new Point());
         int targetHeight = Math.min(point.x, point.y);
-
         // Try to find an size match aspect ratio and size
-
         for (Size size : sizes) {
             double ratio = (double) size.width / size.height;
             if (Math.abs(ratio - targetRatio) > ASPECT_TOLERANCE) continue;
             if (Math.abs(size.height - targetHeight) < minDiff) {
                 optimalSize = size;
                 minDiff = Math.abs(size.height - targetHeight);
-           }
-       }
-
-
+            }
+        }
         // Cannot find the one match the aspect ratio. This should not happen.
         // Ignore the requirement.
         if (optimalSize == null) {
+            Log.w(TAG, "No preview size match the aspect ratio");
             minDiff = Double.MAX_VALUE;
             for (Size size : sizes) {
                 if (Math.abs(size.height - targetHeight) < minDiff) {
@@ -648,7 +708,7 @@ public class Util {
     }
 
     public static void broadcastNewPicture(Context context, Uri uri) {
-        context.sendBroadcast(new Intent(android.hardware.Camera.ACTION_NEW_PICTURE, uri));
+        context.sendBroadcast(new Intent(ACTION_NEW_PICTURE, uri));
         // Keep compatibility
         context.sendBroadcast(new Intent("com.android.camera.NEW_PICTURE", uri));
     }
@@ -685,15 +745,13 @@ public class Util {
         // See android.hardware.Camera.Parameters.setRotation for
         // documentation.
         int rotation = 0;
-        CameraInfo info = CameraHolder.instance().getCameraInfo()[cameraId];
         if (orientation != OrientationEventListener.ORIENTATION_UNKNOWN) {
+            CameraInfo info = CameraHolder.instance().getCameraInfo()[cameraId];
             if (info.facing == CameraInfo.CAMERA_FACING_FRONT) {
                 rotation = (info.orientation - orientation + 360) % 360;
             } else {  // back-facing camera
                 rotation = (info.orientation + orientation) % 360;
             }
-        } else {
-            rotation = info.orientation;
         }
         return rotation;
     }

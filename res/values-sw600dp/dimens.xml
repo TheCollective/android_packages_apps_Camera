@@ -14,14 +14,10 @@
      limitations under the License.
 -->
 <resources>
-    <dimen name="setting_popup_right_margin">8dp</dimen>
-    <dimen name="setting_row_height">54dp</dimen>
-    <dimen name="setting_popup_window_width">260dp</dimen>
-    <dimen name="indicator_bar_width">72dp</dimen>
-    <dimen name="setting_item_icon_width">48dp</dimen>
-    <dimen name="onscreen_indicators_height">36dp</dimen>
-    <dimen name="mode_picker_margin">16dp</dimen>
-    <dimen name="indicator_bar_padding">12dp</dimen>
-    <dimen name="control_panel_min_length">168dp</dimen>
-    <dimen name="thumbnail_size">101dp</dimen>
+    <dimen name="setting_popup_right_margin">@dimen/setting_popup_right_margin_large</dimen>
+    <dimen name="setting_row_height">@dimen/setting_row_height_large</dimen>
+    <dimen name="setting_popup_window_width">@dimen/setting_popup_window_width_large</dimen>
+    <dimen name="setting_item_icon_width">@dimen/setting_item_icon_width_large</dimen>
+    <dimen name="onscreen_indicators_height">@dimen/onscreen_indicators_height_large</dimen>
+    <dimen name="shutter_offset">-33dp</dimen>
 </resources>

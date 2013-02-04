@@ -30,6 +30,9 @@ import android.util.Log;
 import com.android.camera.CameraManager.CameraProxy;
 
 import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
 
 /**
  * The class is used to hold an {@code android.hardware.Camera} instance.
@@ -41,11 +44,11 @@ import java.io.IOException;
  * called soon after, we can avoid the cost of {@code open()} in {@code
  * android.hardware.Camera}.
  *
- * <p>This is used in switching between {@code Camera} and {@code VideoCamera}
- * activities.
+ * <p>This is used in switching between different modules.
  */
 public class CameraHolder {
     private static final String TAG = "CameraHolder";
+    private static final int KEEP_CAMERA_TIMEOUT = 3000; // 3 seconds
     private CameraProxy mCameraDevice;
     private long mKeepBeforeTime;  // Keep the Camera before this time.
     private final Handler mHandler;
@@ -58,10 +61,59 @@ public class CameraHolder {
     private static CameraProxy mMockCamera[];
     private static CameraInfo mMockCameraInfo[];
 
+    /* Debug double-open issue */
+    private static final boolean DEBUG_OPEN_RELEASE = true;
+    private static class OpenReleaseState {
+        long time;
+        int id;
+        String device;
+        String[] stack;
+    }
+    private static ArrayList<OpenReleaseState> sOpenReleaseStates =
+            new ArrayList<OpenReleaseState>();
+    private static SimpleDateFormat sDateFormat = new SimpleDateFormat(
+            "yyyy-MM-dd HH:mm:ss.SSS");
+
+    private static synchronized void collectState(int id, CameraProxy device) {
+        OpenReleaseState s = new OpenReleaseState();
+        s.time = System.currentTimeMillis();
+        s.id = id;
+        if (device == null) {
+            s.device = "(null)";
+        } else {
+            s.device = device.toString();
+        }
+
+        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+        String[] lines = new String[stack.length];
+        for (int i = 0; i < stack.length; i++) {
+            lines[i] = stack[i].toString();
+        }
+        s.stack = lines;
+
+        if (sOpenReleaseStates.size() > 10) {
+            sOpenReleaseStates.remove(0);
+        }
+        sOpenReleaseStates.add(s);
+    }
+
+    private static synchronized void dumpStates() {
+        for (int i = sOpenReleaseStates.size() - 1; i >= 0; i--) {
+            OpenReleaseState s = sOpenReleaseStates.get(i);
+            String date = sDateFormat.format(new Date(s.time));
+            Log.d(TAG, "State " + i + " at " + date);
+            Log.d(TAG, "mCameraId = " + s.id + ", mCameraDevice = " + s.device);
+            Log.d(TAG, "Stack:");
+            for (int j = 0; j < s.stack.length; j++) {
+                Log.d(TAG, "  " + s.stack[j]);
+            }
+        }
+    }
+
     // We store the camera parameters when we actually open the device,
     // so we can restore them in the subsequent open() requests by the user.
-    // This prevents the parameters set by the Camera activity used by
-    // the VideoCamera activity inadvertently.
+    // This prevents the parameters set by PhotoModule used by VideoModule
+    // inadvertently.
     private Parameters mParameters;
 
     // Use a singleton.
@@ -138,6 +190,13 @@ public class CameraHolder {
 
     public synchronized CameraProxy open(int cameraId)
             throws CameraHardwareException {
+        if (DEBUG_OPEN_RELEASE) {
+            collectState(cameraId, mCameraDevice);
+            if (mCameraOpened) {
+                Log.e(TAG, "double open");
+                dumpStates();
+            }
+        }
         Assert(!mCameraOpened);
         if (mCameraDevice != null && mCameraId != cameraId) {
             mCameraDevice.release();
@@ -193,7 +252,11 @@ public class CameraHolder {
     }
 
     public synchronized void release() {
-        Assert(mCameraDevice != null);
+        if (DEBUG_OPEN_RELEASE) {
+            collectState(mCameraId, mCameraDevice);
+        }
+
+        if (mCameraDevice == null) return;
 
         long now = System.currentTimeMillis();
         if (now < mKeepBeforeTime) {
@@ -214,13 +277,15 @@ public class CameraHolder {
         mCameraId = -1;
     }
 
-    public synchronized void keep() {
+    public void keep() {
+        keep(KEEP_CAMERA_TIMEOUT);
+    }
+
+    public synchronized void keep(int time) {
         // We allow mCameraOpened in either state for the convenience of the
         // calling activity. The activity may not have a chance to call open()
         // before the user switches to another activity.
-
-        // Keep the camera instance for 3 seconds.
-        mKeepBeforeTime = System.currentTimeMillis() + 3000;
+        mKeepBeforeTime = System.currentTimeMillis() + time;
     }
 
     public int getBackCameraId() {

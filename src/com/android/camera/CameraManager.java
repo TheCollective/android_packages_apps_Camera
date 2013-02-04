@@ -18,6 +18,7 @@ package com.android.camera;
 
 import static com.android.camera.Util.Assert;
 
+import android.annotation.TargetApi;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera.AutoFocusCallback;
 import android.hardware.Camera.AutoFocusMoveCallback;
@@ -33,7 +34,10 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Message;
+import android.view.SurfaceHolder;
 import android.util.Log;
+
+import com.android.gallery3d.common.ApiHelper;
 
 import java.io.IOException;
 
@@ -69,6 +73,9 @@ public class CameraManager {
     private static final int GET_PARAMETERS = 20;
     private static final int SET_PARAMETERS_ASYNC = 21;
     private static final int WAIT_FOR_IDLE = 22;
+    private static final int SET_PREVIEW_DISPLAY_ASYNC = 23;
+    private static final int SET_PREVIEW_CALLBACK = 24;
+    private static final int ENABLE_SHUTTER_SOUND = 25;
 
     private Handler mCameraHandler;
     private CameraProxy mCameraProxy;
@@ -89,6 +96,39 @@ public class CameraManager {
             super(looper);
         }
 
+        @TargetApi(ApiHelper.VERSION_CODES.ICE_CREAM_SANDWICH)
+        private void startFaceDetection() {
+            mCamera.startFaceDetection();
+        }
+
+        @TargetApi(ApiHelper.VERSION_CODES.ICE_CREAM_SANDWICH)
+        private void stopFaceDetection() {
+            mCamera.stopFaceDetection();
+        }
+
+        @TargetApi(ApiHelper.VERSION_CODES.ICE_CREAM_SANDWICH)
+        private void setFaceDetectionListener(FaceDetectionListener listener) {
+            mCamera.setFaceDetectionListener(listener);
+        }
+
+        @TargetApi(ApiHelper.VERSION_CODES.HONEYCOMB)
+        private void setPreviewTexture(Object surfaceTexture) {
+            try {
+                mCamera.setPreviewTexture((SurfaceTexture) surfaceTexture);
+            } catch(IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @TargetApi(ApiHelper.VERSION_CODES.JELLY_BEAN_MR1)
+        private void enableShutterSound(boolean enable) {
+            mCamera.enableShutterSound(enable);
+        }
+
+        /*
+         * This method does not deal with the build version check.  Everyone should
+         * check first before sending message to this handler.
+         */
         @Override
         public void handleMessage(final Message msg) {
             try {
@@ -117,8 +157,12 @@ public class CameraManager {
                         break;
 
                     case SET_PREVIEW_TEXTURE_ASYNC:
+                        setPreviewTexture(msg.obj);
+                        return;  // no need to call mSig.open()
+
+                    case SET_PREVIEW_DISPLAY_ASYNC:
                         try {
-                            mCamera.setPreviewTexture((SurfaceTexture) msg.obj);
+                            mCamera.setPreviewDisplay((SurfaceHolder) msg.obj);
                         } catch(IOException e) {
                             throw new RuntimeException(e);
                         }
@@ -150,8 +194,7 @@ public class CameraManager {
                         break;
 
                     case SET_AUTO_FOCUS_MOVE_CALLBACK:
-                        mCamera.setAutoFocusMoveCallback(
-                            (AutoFocusMoveCallback) msg.obj);
+                        setAutoFocusMoveCallback(mCamera, msg.obj);
                         break;
 
                     case SET_DISPLAY_ORIENTATION:
@@ -164,16 +207,15 @@ public class CameraManager {
                         break;
 
                     case SET_FACE_DETECTION_LISTENER:
-                        mCamera.setFaceDetectionListener(
-                            (FaceDetectionListener) msg.obj);
+                        setFaceDetectionListener((FaceDetectionListener) msg.obj);
                         break;
 
                     case START_FACE_DETECTION:
-                        mCamera.startFaceDetection();
+                        startFaceDetection();
                         break;
 
                     case STOP_FACE_DETECTION:
-                        mCamera.stopFaceDetection();
+                        stopFaceDetection();
                         break;
 
                     case SET_ERROR_CALLBACK:
@@ -192,9 +234,20 @@ public class CameraManager {
                         mCamera.setParameters((Parameters) msg.obj);
                         return;  // no need to call mSig.open()
 
+                    case SET_PREVIEW_CALLBACK:
+                        mCamera.setPreviewCallback((PreviewCallback) msg.obj);
+                        break;
+
+                    case ENABLE_SHUTTER_SOUND:
+                        enableShutterSound((msg.arg1 == 1) ? true : false);
+                        break;
+
                     case WAIT_FOR_IDLE:
                         // do nothing
                         break;
+
+                    default:
+                        throw new RuntimeException("Invalid CameraProxy message=" + msg.what);
                 }
             } catch (RuntimeException e) {
                 if (msg.what != RELEASE && mCamera != null) {
@@ -210,6 +263,12 @@ public class CameraManager {
             }
             mSig.open();
         }
+    }
+
+    @TargetApi(ApiHelper.VERSION_CODES.JELLY_BEAN)
+    private void setAutoFocusMoveCallback(android.hardware.Camera camera,
+            Object cb) {
+        camera.setAutoFocusMoveCallback((AutoFocusMoveCallback) cb);
     }
 
     // Open camera synchronously. This method is invoked in the context of a
@@ -266,8 +325,13 @@ public class CameraManager {
             mSig.block();
         }
 
+        @TargetApi(ApiHelper.VERSION_CODES.HONEYCOMB)
         public void setPreviewTextureAsync(final SurfaceTexture surfaceTexture) {
             mCameraHandler.obtainMessage(SET_PREVIEW_TEXTURE_ASYNC, surfaceTexture).sendToTarget();
+        }
+
+        public void setPreviewDisplayAsync(final SurfaceHolder surfaceHolder) {
+            mCameraHandler.obtainMessage(SET_PREVIEW_DISPLAY_ASYNC, surfaceHolder).sendToTarget();
         }
 
         public void startPreviewAsync() {
@@ -277,6 +341,12 @@ public class CameraManager {
         public void stopPreview() {
             mSig.close();
             mCameraHandler.sendEmptyMessage(STOP_PREVIEW);
+            mSig.block();
+        }
+
+        public void setPreviewCallback(final PreviewCallback cb) {
+            mSig.close();
+            mCameraHandler.obtainMessage(SET_PREVIEW_CALLBACK, cb).sendToTarget();
             mSig.block();
         }
 
@@ -304,6 +374,7 @@ public class CameraManager {
             mSig.block();
         }
 
+        @TargetApi(ApiHelper.VERSION_CODES.JELLY_BEAN)
         public void setAutoFocusMoveCallback(AutoFocusMoveCallback cb) {
             mSig.close();
             mCameraHandler.obtainMessage(SET_AUTO_FOCUS_MOVE_CALLBACK, cb).sendToTarget();
@@ -324,6 +395,27 @@ public class CameraManager {
             mSig.block();
         }
 
+        public void takePicture2(final ShutterCallback shutter, final PictureCallback raw,
+                final PictureCallback postview, final PictureCallback jpeg,
+                final int cameraState, final int focusState) {
+            mSig.close();
+            // Too many parameters, so use post for simplicity
+            mCameraHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        mCamera.takePicture(shutter, raw, postview, jpeg);
+                    } catch (RuntimeException e) {
+                        Log.w(TAG, "take picture failed; cameraState:" + cameraState
+                            + ", focusState:" + focusState);
+                        throw e;
+                    }
+                    mSig.open();
+                }
+            });
+            mSig.block();
+        }
+
         public void setDisplayOrientation(int degrees) {
             mSig.close();
             mCameraHandler.obtainMessage(SET_DISPLAY_ORIENTATION, degrees, 0)
@@ -337,6 +429,7 @@ public class CameraManager {
             mSig.block();
         }
 
+        @TargetApi(ApiHelper.VERSION_CODES.ICE_CREAM_SANDWICH)
         public void setFaceDetectionListener(FaceDetectionListener listener) {
             mSig.close();
             mCameraHandler.obtainMessage(SET_FACE_DETECTION_LISTENER, listener).sendToTarget();
@@ -376,7 +469,16 @@ public class CameraManager {
             mSig.close();
             mCameraHandler.sendEmptyMessage(GET_PARAMETERS);
             mSig.block();
-            return mParameters;
+            Parameters parameters = mParameters;
+            mParameters = null;
+            return parameters;
+        }
+
+        public void enableShutterSound(boolean enable) {
+            mSig.close();
+            mCameraHandler.obtainMessage(
+                    ENABLE_SHUTTER_SOUND, (enable ? 1 : 0), 0).sendToTarget();
+            mSig.block();
         }
 
         public void waitForIdle() {

@@ -40,8 +40,19 @@ LOCAL_SRC_FILES := \
         feature_stab/src/dbreg/dbstabsmooth.cpp \
         feature_stab/src/dbreg/vp_motionmodel.c
 
-LOCAL_SHARED_LIBRARIES := liblog libnativehelper libGLESv2
-#LOCAL_LDLIBS := -L$(SYSROOT)/usr/lib -ldl -llog -lGLESv2 -L$(TARGET_OUT)
+ifeq ($(TARGET_ARCH), arm)
+        LOCAL_SDK_VERSION := 9
+endif
+
+ifeq ($(TARGET_ARCH), x86)
+        LOCAL_SDK_VERSION := 9
+endif
+
+ifeq ($(TARGET_ARCH), mips)
+        LOCAL_SDK_VERSION := 9
+endif
+
+LOCAL_LDFLAGS := -llog -lGLESv2
 
 LOCAL_MODULE_TAGS := optional
 

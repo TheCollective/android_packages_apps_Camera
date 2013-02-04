@@ -17,60 +17,57 @@
 package com.android.camera;
 
 import android.content.BroadcastReceiver;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Rect;
 import android.hardware.Camera.Parameters;
-import android.os.AsyncTask;
+import android.net.Uri;
 import android.os.Bundle;
-import android.support.v4.content.LocalBroadcastManager;
-import android.util.Log;
+import android.os.Handler;
+import android.os.Message;
 import android.view.KeyEvent;
-import android.view.Menu;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.animation.AlphaAnimation;
+import android.view.animation.Animation;
 import android.view.animation.DecelerateInterpolator;
 
-import com.android.camera.ui.CameraPicker;
+import com.android.camera.ui.LayoutChangeNotifier;
 import com.android.camera.ui.PopupManager;
-import com.android.camera.ui.RotateImageView;
 import com.android.gallery3d.app.AbstractGalleryActivity;
 import com.android.gallery3d.app.AppBridge;
 import com.android.gallery3d.app.GalleryActionBar;
 import com.android.gallery3d.app.PhotoPage;
+import com.android.gallery3d.common.ApiHelper;
 import com.android.gallery3d.ui.ScreenNail;
 import com.android.gallery3d.util.MediaSetUtils;
 
-import java.io.File;
-
 /**
- * Superclass of Camera and VideoCamera activities.
+ * Superclass of camera activity.
  */
-abstract public class ActivityBase extends AbstractGalleryActivity
-        implements View.OnLayoutChangeListener {
+public abstract class ActivityBase extends AbstractGalleryActivity
+        implements LayoutChangeNotifier.Listener {
 
     private static final String TAG = "ActivityBase";
-    private static final boolean LOGV = false;
     private static final int CAMERA_APP_VIEW_TOGGLE_TIME = 100;  // milliseconds
-    private static final String ACTION_DELETE_PICTURE =
-            "com.android.gallery3d.action.DELETE_PICTURE";
+    private static final String INTENT_ACTION_STILL_IMAGE_CAMERA_SECURE =
+            "android.media.action.STILL_IMAGE_CAMERA_SECURE";
+    public static final String ACTION_IMAGE_CAPTURE_SECURE =
+            "android.media.action.IMAGE_CAPTURE_SECURE";
+    // The intent extra for camera from secure lock screen. True if the gallery
+    // should only show newly captured pictures. sSecureAlbumId does not
+    // increment. This is used when switching between camera, camcorder, and
+    // panorama. If the extra is not set, it is in the normal camera mode.
+    public static final String SECURE_CAMERA_EXTRA = "secure_camera";
+
     private int mResultCodeForTesting;
     private Intent mResultDataForTesting;
     private OnScreenHint mStorageHint;
-    private HideCameraAppView mHideCameraAppView;
     private View mSingleTapArea;
-
-    // The bitmap of the last captured picture thumbnail and the URI of the
-    // original picture.
-    protected Thumbnail mThumbnail;
-    protected int mThumbnailViewWidth; // layout width of the thumbnail
-    protected AsyncTask<Void, Void, Thumbnail> mLoadThumbnailTask;
-    // An imageview showing the last captured picture thumbnail.
-    protected RotateImageView mThumbnailView;
-    protected CameraPicker mCameraPicker;
 
     protected boolean mOpenCameraFail;
     protected boolean mCameraDisabled;
@@ -82,12 +79,7 @@ abstract public class ActivityBase extends AbstractGalleryActivity
     protected GalleryActionBar mActionBar;
 
     // Keep track of powershutter state
-    protected boolean mPowerShutter = false;
-
-    // Set time after touchtofocus
-    public static int mFocusTime;
-
-    protected int mCaptureMode;
+    public static boolean mPowerShutter = false;
 
     // multiple cameras support
     protected int mNumberOfCameras;
@@ -98,25 +90,70 @@ abstract public class ActivityBase extends AbstractGalleryActivity
     protected int mPendingSwitchCameraId = -1;
 
     protected MyAppBridge mAppBridge;
-    protected CameraScreenNail mCameraScreenNail; // This shows camera preview.
+    protected ScreenNail mCameraScreenNail; // This shows camera preview.
     // The view containing only camera related widgets like control panel,
     // indicator bar, focus indicator and etc.
     protected View mCameraAppView;
     protected boolean mShowCameraAppView = true;
-    private boolean mUpdateThumbnailDelayed;
-    private IntentFilter mDeletePictureFilter =
-            new IntentFilter(ACTION_DELETE_PICTURE);
-    private BroadcastReceiver mDeletePictureReceiver =
-            new BroadcastReceiver() {
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    if (mShowCameraAppView) {
-                        getLastThumbnailUncached();
-                    } else {
-                        mUpdateThumbnailDelayed = true;
-                    }
+    private Animation mCameraAppViewFadeIn;
+    private Animation mCameraAppViewFadeOut;
+    // Secure album id. This should be incremented every time the camera is
+    // launched from the secure lock screen. The id should be the same when
+    // switching between camera, camcorder, and panorama.
+    protected static int sSecureAlbumId;
+    // True if the camera is started from secure lock screen.
+    protected boolean mSecureCamera;
+    private static boolean sFirstStartAfterScreenOn = true;
+
+    private long mStorageSpace = Storage.LOW_STORAGE_THRESHOLD;
+    private static final int UPDATE_STORAGE_HINT = 0;
+    private final Handler mHandler = new Handler() {
+            @Override
+            public void handleMessage(Message msg) {
+                switch (msg.what) {
+                    case UPDATE_STORAGE_HINT:
+                        updateStorageHint();
+                        return;
                 }
-            };
+            }
+    };
+
+    private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (action.equals(Intent.ACTION_MEDIA_MOUNTED)
+                    || action.equals(Intent.ACTION_MEDIA_UNMOUNTED)
+                    || action.equals(Intent.ACTION_MEDIA_CHECKING)
+                    || action.equals(Intent.ACTION_MEDIA_SCANNER_FINISHED)) {
+                updateStorageSpaceAndHint();
+            }
+        }
+    };
+
+    // close activity when screen turns off
+    private BroadcastReceiver mScreenOffReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            finish();
+        }
+    };
+
+    private static BroadcastReceiver sScreenOffReceiver;
+    private static class ScreenOffReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            sFirstStartAfterScreenOn = true;
+        }
+    }
+
+    public static boolean isFirstStartAfterScreenOn() {
+        return sFirstStartAfterScreenOn;
+    }
+
+    public static void resetFirstStartAfterScreenOn() {
+        sFirstStartAfterScreenOn = false;
+    }
 
     protected class CameraOpenThread extends Thread {
         @Override
@@ -134,7 +171,6 @@ abstract public class ActivityBase extends AbstractGalleryActivity
 
     @Override
     public void onCreate(Bundle icicle) {
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         super.disableToggleStatusBar();
         // Set a theme with action bar. It is not specified in manifest because
         // we want to hide it by default. setTheme must happen before
@@ -144,8 +180,32 @@ abstract public class ActivityBase extends AbstractGalleryActivity
         // background is removed.
         setTheme(R.style.Theme_Gallery);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        requestWindowFeature(Window.FEATURE_ACTION_BAR_OVERLAY);
+        if (ApiHelper.HAS_ACTION_BAR) {
+            requestWindowFeature(Window.FEATURE_ACTION_BAR_OVERLAY);
+        } else {
+            requestWindowFeature(Window.FEATURE_NO_TITLE);
+        }
 
+        // Check if this is in the secure camera mode.
+        Intent intent = getIntent();
+        String action = intent.getAction();
+        if (INTENT_ACTION_STILL_IMAGE_CAMERA_SECURE.equals(action)) {
+            mSecureCamera = true;
+            // Use a new album when this is started from the lock screen.
+            sSecureAlbumId++;
+        } else if (ACTION_IMAGE_CAPTURE_SECURE.equals(action)) {
+            mSecureCamera = true;
+        } else {
+            mSecureCamera = intent.getBooleanExtra(SECURE_CAMERA_EXTRA, false);
+        }
+        if (mSecureCamera) {
+            IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+            registerReceiver(mScreenOffReceiver, filter);
+            if (sScreenOffReceiver == null) {
+                sScreenOffReceiver = new ScreenOffReceiver();
+                getApplicationContext().registerReceiver(sScreenOffReceiver, filter);
+            }
+        }
         super.onCreate(icicle);
     }
 
@@ -168,28 +228,24 @@ abstract public class ActivityBase extends AbstractGalleryActivity
     @Override
     protected void onResume() {
         super.onResume();
-        LocalBroadcastManager manager = LocalBroadcastManager.getInstance(this);
-        manager.registerReceiver(mDeletePictureReceiver, mDeletePictureFilter);
+
+        installIntentFilter();
+        if (updateStorageHintOnResume()) {
+            updateStorageSpace();
+            mHandler.sendEmptyMessageDelayed(UPDATE_STORAGE_HINT, 200);
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        LocalBroadcastManager manager = LocalBroadcastManager.getInstance(this);
-        manager.unregisterReceiver(mDeletePictureReceiver);
-
-        if (LOGV) Log.v(TAG, "onPause");
-        saveThumbnailToFile();
-
-        if (mLoadThumbnailTask != null) {
-            mLoadThumbnailTask.cancel(true);
-            mLoadThumbnailTask = null;
-        }
 
         if (mStorageHint != null) {
             mStorageHint.cancel();
             mStorageHint = null;
         }
+
+        unregisterReceiver(mReceiver);
     }
 
     @Override
@@ -212,8 +268,19 @@ abstract public class ActivityBase extends AbstractGalleryActivity
                 || keyCode == KeyEvent.KEYCODE_MENU) {
             if (event.isLongPress()) return true;
         }
+        if (keyCode == KeyEvent.KEYCODE_MENU && mShowCameraAppView) {
+            return true;
+        }
 
         return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_MENU && mShowCameraAppView) {
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
     }
 
     protected void setResultEx(int resultCode) {
@@ -238,13 +305,40 @@ abstract public class ActivityBase extends AbstractGalleryActivity
     @Override
     protected void onDestroy() {
         PopupManager.removeInstance(this);
+        if (mSecureCamera) unregisterReceiver(mScreenOffReceiver);
         super.onDestroy();
     }
 
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        super.onCreateOptionsMenu(menu);
-        return getStateManager().createOptionsMenu(menu);
+    protected void installIntentFilter() {
+        // install an intent filter to receive SD card related events.
+        IntentFilter intentFilter =
+                new IntentFilter(Intent.ACTION_MEDIA_MOUNTED);
+        intentFilter.addAction(Intent.ACTION_MEDIA_UNMOUNTED);
+        intentFilter.addAction(Intent.ACTION_MEDIA_SCANNER_FINISHED);
+        intentFilter.addAction(Intent.ACTION_MEDIA_CHECKING);
+        intentFilter.addDataScheme("file");
+        registerReceiver(mReceiver, intentFilter);
+    }
+
+    protected void updateStorageSpace() {
+        mStorageSpace = Storage.getAvailableSpace();
+    }
+
+    protected long getStorageSpace() {
+        return mStorageSpace;
+    }
+
+    protected void updateStorageSpaceAndHint() {
+        updateStorageSpace();
+        updateStorageHint(mStorageSpace);
+    }
+
+    protected void updateStorageHint() {
+        updateStorageHint(mStorageSpace);
+    }
+
+    protected boolean updateStorageHintOnResume() {
+        return true;
     }
 
     protected void updateStorageHint(long storageSpace) {
@@ -255,7 +349,7 @@ abstract public class ActivityBase extends AbstractGalleryActivity
             message = getString(R.string.preparing_sd);
         } else if (storageSpace == Storage.UNKNOWN_SIZE) {
             message = getString(R.string.access_sd_fail);
-        } else if (storageSpace < Storage.LOW_STORAGE_THRESHOLD) {
+        } else if (storageSpace <= Storage.LOW_STORAGE_THRESHOLD) {
             message = getString(R.string.spaceIsLow_content);
         }
 
@@ -272,165 +366,122 @@ abstract public class ActivityBase extends AbstractGalleryActivity
         }
     }
 
-    protected void updateThumbnailView() {
-        if (mThumbnail != null) {
-            mThumbnailView.setBitmap(mThumbnail.getBitmap());
-            mThumbnailView.setVisibility(View.VISIBLE);
-        } else {
-            mThumbnailView.setBitmap(null);
-            mThumbnailView.setVisibility(View.GONE);
-        }
-    }
-
-    protected void getLastThumbnail() {
-        mThumbnail = ThumbnailHolder.getLastThumbnail(getContentResolver());
-        // Suppose users tap the thumbnail view, go to the gallery, delete the
-        // image, and coming back to the camera. Thumbnail file will be invalid.
-        // Since the new thumbnail will be loaded in another thread later, the
-        // view should be set to gone to prevent from opening the invalid image.
-        updateThumbnailView();
-        if (mThumbnail == null) {
-            mLoadThumbnailTask = new LoadThumbnailTask(true).execute();
-        }
-    }
-
-    protected void getLastThumbnailUncached() {
-        if (mLoadThumbnailTask != null) mLoadThumbnailTask.cancel(true);
-        mLoadThumbnailTask = new LoadThumbnailTask(false).execute();
-    }
-
-    private class LoadThumbnailTask extends AsyncTask<Void, Void, Thumbnail> {
-        private boolean mLookAtCache;
-
-        public LoadThumbnailTask(boolean lookAtCache) {
-            mLookAtCache = lookAtCache;
-        }
-
-        @Override
-        protected Thumbnail doInBackground(Void... params) {
-            // Load the thumbnail from the file.
-            ContentResolver resolver = getContentResolver();
-            Thumbnail t = null;
-            if (mLookAtCache) {
-                t = Thumbnail.getLastThumbnailFromFile(getFilesDir(), resolver);
-            }
-
-            if (isCancelled()) return null;
-
-            if (t == null) {
-                Thumbnail result[] = new Thumbnail[1];
-                // Load the thumbnail from the media provider.
-                int code = Thumbnail.getLastThumbnailFromContentResolver(
-                        resolver, result);
-                switch (code) {
-                    case Thumbnail.THUMBNAIL_FOUND:
-                        return result[0];
-                    case Thumbnail.THUMBNAIL_NOT_FOUND:
-                        return null;
-                    case Thumbnail.THUMBNAIL_DELETED:
-                        cancel(true);
-                        return null;
-                }
-            }
-            return t;
-        }
-
-        @Override
-        protected void onPostExecute(Thumbnail thumbnail) {
-            if (isCancelled()) return;
-            mThumbnail = thumbnail;
-            updateThumbnailView();
-        }
-    }
-
     protected void gotoGallery() {
         // Move the next picture with capture animation. "1" means next.
         mAppBridge.switchWithCaptureAnimation(1);
     }
 
-    protected void saveThumbnailToFile() {
-        if (mThumbnail != null && !mThumbnail.fromFile()) {
-            new SaveThumbnailTask().execute(mThumbnail);
-        }
-    }
-
-    private class SaveThumbnailTask extends AsyncTask<Thumbnail, Void, Void> {
-        @Override
-        protected Void doInBackground(Thumbnail... params) {
-            final int n = params.length;
-            final File filesDir = getFilesDir();
-            for (int i = 0; i < n; i++) {
-                params[i].saveLastThumbnailToFile(filesDir);
+    // Call this after setContentView.
+    public ScreenNail createCameraScreenNail(boolean getPictures) {
+        mCameraAppView = findViewById(R.id.camera_app_root);
+        Bundle data = new Bundle();
+        String path;
+        if (getPictures) {
+            if (mSecureCamera) {
+                path = "/secure/all/" + sSecureAlbumId;
+            } else {
+                path = "/local/all/" + MediaSetUtils.CAMERA_BUCKET_ID;
             }
-            return null;
+        } else {
+            path = "/local/all/0"; // Use 0 so gallery does not show anything.
         }
+        data.putString(PhotoPage.KEY_MEDIA_SET_PATH, path);
+        data.putString(PhotoPage.KEY_MEDIA_ITEM_PATH, path);
+        data.putBoolean(PhotoPage.KEY_SHOW_WHEN_LOCKED, mSecureCamera);
+
+        // Send an AppBridge to gallery to enable the camera preview.
+        if (mAppBridge != null) {
+            mCameraScreenNail.recycle();
+        }
+        mAppBridge = new MyAppBridge();
+        data.putParcelable(PhotoPage.KEY_APP_BRIDGE, mAppBridge);
+        if (getStateManager().getStateCount() == 0) {
+            getStateManager().startState(PhotoPage.class, data);
+        } else {
+            getStateManager().switchState(getStateManager().getTopState(),
+                    PhotoPage.class, data);
+        }
+        mCameraScreenNail = mAppBridge.getCameraScreenNail();
+        return mCameraScreenNail;
     }
 
     // Call this after setContentView.
-    protected void createCameraScreenNail(boolean getPictures) {
+    protected ScreenNail reuseCameraScreenNail(boolean getPictures) {
         mCameraAppView = findViewById(R.id.camera_app_root);
         Bundle data = new Bundle();
-        String path = "/local/all/";
-        // Intent mode does not show camera roll. Use 0 as a work around for
-        // invalid bucket id.
-        // TODO: add support of empty media set in gallery.
-        path += (getPictures ? MediaSetUtils.CAMERA_BUCKET_ID : "0");
+        String path;
+        if (getPictures) {
+            if (mSecureCamera) {
+                path = "/secure/all/" + sSecureAlbumId;
+            } else {
+                path = "/local/all/" + MediaSetUtils.CAMERA_BUCKET_ID;
+            }
+        } else {
+            path = "/local/all/0"; // Use 0 so gallery does not show anything.
+        }
         data.putString(PhotoPage.KEY_MEDIA_SET_PATH, path);
         data.putString(PhotoPage.KEY_MEDIA_ITEM_PATH, path);
+        data.putBoolean(PhotoPage.KEY_SHOW_WHEN_LOCKED, mSecureCamera);
 
         // Send an AppBridge to gallery to enable the camera preview.
-        mAppBridge = new MyAppBridge();
+        if (mAppBridge == null) {
+            mAppBridge = new MyAppBridge();
+        }
         data.putParcelable(PhotoPage.KEY_APP_BRIDGE, mAppBridge);
-        getStateManager().startState(PhotoPage.class, data);
+        if (getStateManager().getStateCount() == 0) {
+            getStateManager().startState(PhotoPage.class, data);
+        }
         mCameraScreenNail = mAppBridge.getCameraScreenNail();
+        return mCameraScreenNail;
     }
 
-    private class HideCameraAppView implements Runnable {
+    private class HideCameraAppView implements Animation.AnimationListener {
         @Override
-        public void run() {
+        public void onAnimationEnd(Animation animation) {
             // We cannot set this as GONE because we want to receive the
             // onLayoutChange() callback even when we are invisible.
             mCameraAppView.setVisibility(View.INVISIBLE);
         }
+
+        @Override
+        public void onAnimationRepeat(Animation animation) {
+        }
+
+        @Override
+        public void onAnimationStart(Animation animation) {
+        }
     }
 
     protected void updateCameraAppView() {
+        // Initialize the animation.
+        if (mCameraAppViewFadeIn == null) {
+            mCameraAppViewFadeIn = new AlphaAnimation(0f, 1f);
+            mCameraAppViewFadeIn.setDuration(CAMERA_APP_VIEW_TOGGLE_TIME);
+            mCameraAppViewFadeIn.setInterpolator(new DecelerateInterpolator());
+
+            mCameraAppViewFadeOut = new AlphaAnimation(1f, 0f);
+            mCameraAppViewFadeOut.setDuration(CAMERA_APP_VIEW_TOGGLE_TIME);
+            mCameraAppViewFadeOut.setInterpolator(new DecelerateInterpolator());
+            mCameraAppViewFadeOut.setAnimationListener(new HideCameraAppView());
+        }
+
         if (mShowCameraAppView) {
             mCameraAppView.setVisibility(View.VISIBLE);
             // The "transparent region" is not recomputed when a sibling of
             // SurfaceView changes visibility (unless it involves GONE). It's
             // been broken since 1.0. Call requestLayout to work around it.
             mCameraAppView.requestLayout();
-            // withEndAction(null) prevents the pending end action
-            // mHideCameraAppView from being executed.
-            mCameraAppView.animate()
-                    .setDuration(CAMERA_APP_VIEW_TOGGLE_TIME)
-                    .withLayer().alpha(1).withEndAction(null);
+            mCameraAppView.startAnimation(mCameraAppViewFadeIn);
         } else {
-            mCameraAppView.animate()
-                    .setDuration(CAMERA_APP_VIEW_TOGGLE_TIME)
-                    .withLayer().alpha(0).withEndAction(mHideCameraAppView);
+            mCameraAppView.startAnimation(mCameraAppViewFadeOut);
         }
     }
 
-    private void onFullScreenChanged(boolean full) {
+    protected void onFullScreenChanged(boolean full) {
         if (mShowCameraAppView == full) return;
         mShowCameraAppView = full;
         if (mPaused || isFinishing()) return;
-        // Initialize the animation.
-        if (mHideCameraAppView == null) {
-            mHideCameraAppView = new HideCameraAppView();
-            mCameraAppView.animate()
-                .setInterpolator(new DecelerateInterpolator());
-        }
         updateCameraAppView();
-
-        // If we received DELETE_PICTURE broadcasts while the Camera UI is
-        // hidden, we update the thumbnail now.
-        if (full && mUpdateThumbnailDelayed) {
-            getLastThumbnailUncached();
-            mUpdateThumbnailDelayed = false;
-        }
     }
 
     @Override
@@ -440,41 +491,22 @@ abstract public class ActivityBase extends AbstractGalleryActivity
 
     // Preview frame layout has changed.
     @Override
-    public void onLayoutChange(View v, int left, int top, int right, int bottom,
-            int oldLeft, int oldTop, int oldRight, int oldBottom) {
+    public void onLayoutChange(View v, int left, int top, int right, int bottom) {
         if (mAppBridge == null) return;
-
-        if (left == oldLeft && top == oldTop && right == oldRight
-                && bottom == oldBottom) {
-            return;
-        }
-
 
         int width = right - left;
         int height = bottom - top;
-        if (Util.getDisplayRotation(this) % 180 == 0) {
-            mCameraScreenNail.setPreviewFrameLayoutSize(width, height);
-        } else {
-            // Swap the width and height. Camera screen nail draw() is based on
-            // natural orientation, not the view system orientation.
-            mCameraScreenNail.setPreviewFrameLayoutSize(height, width);
+        if (ApiHelper.HAS_SURFACE_TEXTURE) {
+            CameraScreenNail screenNail = (CameraScreenNail) mCameraScreenNail;
+            if (Util.getDisplayRotation(this) % 180 == 0) {
+                screenNail.setPreviewFrameLayoutSize(width, height);
+            } else {
+                // Swap the width and height. Camera screen nail draw() is based on
+                // natural orientation, not the view system orientation.
+                screenNail.setPreviewFrameLayoutSize(height, width);
+            }
+            notifyScreenNailChanged();
         }
-
-        // Find out the coordinates of the preview frame relative to GL
-        // root view.
-        View root = (View) getGLRoot();
-        int[] rootLocation = new int[2];
-        int[] viewLocation = new int[2];
-        root.getLocationInWindow(rootLocation);
-        v.getLocationInWindow(viewLocation);
-
-        int l = viewLocation[0] - rootLocation[0];
-        int t = viewLocation[1] - rootLocation[1];
-        int r = l + width;
-        int b = t + height;
-        Rect frame = new Rect(l, t, r, b);
-        Log.d(TAG, "set CameraRelativeFrame as " + frame);
-        mAppBridge.setCameraRelativeFrame(frame);
     }
 
     protected void setSingleTapUpListener(View singleTapArea) {
@@ -500,15 +532,29 @@ abstract public class ActivityBase extends AbstractGalleryActivity
     protected void onSingleTapUp(View view, int x, int y) {
     }
 
-    protected void setSwipingEnabled(boolean enabled) {
+    public void setSwipingEnabled(boolean enabled) {
         mAppBridge.setSwipingEnabled(enabled);
     }
 
-    protected void notifyScreenNailChanged() {
+    public void notifyScreenNailChanged() {
         mAppBridge.notifyScreenNailChanged();
     }
 
     protected void onPreviewTextureCopied() {
+    }
+
+    protected void onCaptureTextureCopied() {
+    }
+
+    protected void addSecureAlbumItemIfNeeded(boolean isVideo, Uri uri) {
+        if (mSecureCamera) {
+            int id = Integer.parseInt(uri.getLastPathSegment());
+            mAppBridge.addSecureAlbumItem(isVideo, id);
+        }
+    }
+
+    public boolean isSecureCamera() {
+        return mSecureCamera;
     }
 
     //////////////////////////////////////////////////////////////////////////
@@ -517,13 +563,20 @@ abstract public class ActivityBase extends AbstractGalleryActivity
     //////////////////////////////////////////////////////////////////////////
 
     class MyAppBridge extends AppBridge implements CameraScreenNail.Listener {
-        private CameraScreenNail mCameraScreenNail;
+        @SuppressWarnings("hiding")
+        private ScreenNail mCameraScreenNail;
         private Server mServer;
 
         @Override
         public ScreenNail attachScreenNail() {
             if (mCameraScreenNail == null) {
-                mCameraScreenNail = new CameraScreenNail(this);
+                if (ApiHelper.HAS_SURFACE_TEXTURE) {
+                    mCameraScreenNail = new CameraScreenNail(this);
+                } else {
+                    Bitmap b = BitmapFactory.decodeResource(getResources(),
+                            R.drawable.wallpaper_picker_preview);
+                    mCameraScreenNail = new StaticBitmapScreenNail(b);
+                }
             }
             return mCameraScreenNail;
         }
@@ -533,7 +586,7 @@ abstract public class ActivityBase extends AbstractGalleryActivity
             mCameraScreenNail = null;
         }
 
-        public CameraScreenNail getCameraScreenNail() {
+        public ScreenNail getCameraScreenNail() {
             return mCameraScreenNail;
         }
 
@@ -552,12 +605,17 @@ abstract public class ActivityBase extends AbstractGalleryActivity
 
         @Override
         public void requestRender() {
-            getGLRoot().requestRender();
+            getGLRoot().requestRenderForced();
         }
 
         @Override
         public void onPreviewTextureCopied() {
             ActivityBase.this.onPreviewTextureCopied();
+        }
+
+        @Override
+        public void onCaptureTextureCopied() {
+            ActivityBase.this.onCaptureTextureCopied();
         }
 
         @Override
@@ -568,6 +626,15 @@ abstract public class ActivityBase extends AbstractGalleryActivity
         @Override
         public boolean isPanorama() {
             return ActivityBase.this.isPanoramaActivity();
+        }
+
+        @Override
+        public boolean isStaticCamera() {
+            return !ApiHelper.HAS_SURFACE_TEXTURE;
+        }
+
+        public void addSecureAlbumItem(boolean isVideo, int id) {
+            if (mServer != null) mServer.addSecureAlbumItem(isVideo, id);
         }
 
         private void setCameraRelativeFrame(Rect frame) {

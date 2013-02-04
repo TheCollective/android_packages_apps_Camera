@@ -21,7 +21,7 @@ import android.util.AttributeSet;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.CompoundButton;
 import android.widget.CompoundButton.OnCheckedChangeListener;
-import android.widget.Switch;
+
 
 import com.android.camera.ListPreference;
 import com.android.camera.R;
@@ -70,13 +70,13 @@ public class InLineSettingSwitch extends InLineSettingItem {
 
     @Override
     public boolean dispatchPopulateAccessibilityEvent(AccessibilityEvent event) {
-        onPopulateAccessibilityEvent(event);
+        event.getText().add(mPreference.getTitle());
         return true;
     }
 
     @Override
-    public void onPopulateAccessibilityEvent(AccessibilityEvent event) {
-        super.onPopulateAccessibilityEvent(event);
-        event.getText().add(mPreference.getTitle());
+    public void setEnabled(boolean enable) {
+        if (mTitle != null) mTitle.setEnabled(enable);
+        if (mSwitch != null) mSwitch.setEnabled(enable);
     }
 }

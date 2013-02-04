@@ -20,14 +20,20 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.util.AttributeSet;
 import android.view.View;
+import android.view.ViewStub;
 import android.widget.RelativeLayout;
-import android.hardware.Camera.CameraInfo;
-import android.util.Log;
+
+import com.android.camera.ui.LayoutChangeHelper;
+import com.android.camera.ui.LayoutChangeNotifier;
+import com.android.gallery3d.common.ApiHelper;
 
 /**
  * A layout which handles the preview aspect ratio.
  */
-public class PreviewFrameLayout extends RelativeLayout {
+public class PreviewFrameLayout extends RelativeLayout implements LayoutChangeNotifier {
+
+    private static final String TAG = "CAM_preview";
+
     /** A callback to be invoked when the preview frame's size changes. */
     public interface OnSizeChangedListener {
         public void onSizeChanged(int width, int height);
@@ -36,22 +42,26 @@ public class PreviewFrameLayout extends RelativeLayout {
     private double mAspectRatio;
     private View mBorder;
     private OnSizeChangedListener mListener;
-    private int mCameraOrientation;
-    private static final String TAG = "PreviewFrameLayout";
+    private LayoutChangeHelper mLayoutChangeHelper;
 
     public PreviewFrameLayout(Context context, AttributeSet attrs) {
         super(context, attrs);
         setAspectRatio(4.0 / 3.0);
-        mCameraOrientation = 90;
-    }
-
-    public void setCameraOrientation(int orientation){
-        mCameraOrientation = orientation;
+        mLayoutChangeHelper = new LayoutChangeHelper(this);
     }
 
     @Override
     protected void onFinishInflate() {
         mBorder = findViewById(R.id.preview_border);
+        if (ApiHelper.HAS_FACE_DETECTION) {
+            ViewStub faceViewStub = (ViewStub) findViewById(R.id.face_view_stub);
+            /* preview_frame_video.xml does not have face view stub, so we need to
+             * check that.
+             */
+            if (faceViewStub != null) {
+                faceViewStub.inflate();
+            }
+        }
     }
 
     public void setAspectRatio(double ratio) {
@@ -88,23 +98,11 @@ public class PreviewFrameLayout extends RelativeLayout {
         // Resize the preview frame with correct aspect ratio.
         previewWidth -= hPadding;
         previewHeight -= vPadding;
-        if(mCameraOrientation % 180 == 0) {
-            if (previewWidth > previewHeight * mAspectRatio) {
-                previewHeight = (int) (previewWidth / mAspectRatio + .5);
-            } else {
-                previewWidth = (int) (previewHeight * mAspectRatio + .5);
-            }
-        } else {
-            if (previewWidth > previewHeight * mAspectRatio) {
-                previewWidth = (int) (previewHeight * mAspectRatio + .5);
-            } else {
-                previewHeight = (int) (previewWidth / mAspectRatio + .5);
-            }
-        }
 
         // Add the padding of the border.
         previewWidth += hPadding;
         previewHeight += vPadding;
+
         // Ask children to follow the new preview dimension.
         super.onMeasure(MeasureSpec.makeMeasureSpec(previewWidth, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(previewHeight, MeasureSpec.EXACTLY));
@@ -117,5 +115,17 @@ public class PreviewFrameLayout extends RelativeLayout {
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         if (mListener != null) mListener.onSizeChanged(w, h);
+    }
+
+    @Override
+    public void setOnLayoutChangeListener(
+            LayoutChangeNotifier.Listener listener) {
+        mLayoutChangeHelper.setOnLayoutChangeListener(listener);
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        super.onLayout(changed, l, t, r, b);
+        mLayoutChangeHelper.onLayout(changed, l, t, r, b);
     }
 }

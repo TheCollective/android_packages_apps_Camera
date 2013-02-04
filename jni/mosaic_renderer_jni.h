@@ -5,13 +5,13 @@
 // frame dimensions (gPreviewImageWidth, gPreviewImageHeight)
 // using the scale factors below.
 const int PREVIEW_FBO_WIDTH_SCALE = 2;
-const int PREVIEW_FBO_HEIGHT_SCALE = 1;
+const int PREVIEW_FBO_HEIGHT_SCALE = 2;
 
 // The factor below determines the (horizontal) speed at which the viewfinder
 // will pan across the UI during capture. A value of 0.0 will keep the viewfinder
 // static in the center of the screen and 1.0f will make it pan at the
 // same speed as the device.
-const float VIEWFINDER_PAN_FACTOR_HORZ = 0.3f;
+const float VIEWFINDER_PAN_FACTOR_HORZ = 0.0f;
 
 // What fraction of the screen viewport width has been allocated to show the
 // arrows on the direction of motion side.
