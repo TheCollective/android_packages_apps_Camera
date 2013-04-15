@@ -65,6 +65,7 @@ public class CameraSettings {
     public static final String KEY_CAMERA_FIRST_USE_HINT_SHOWN = "pref_camera_first_use_hint_shown_key";
     public static final String KEY_VIDEO_FIRST_USE_HINT_SHOWN = "pref_video_first_use_hint_shown_key";
     public static final String KEY_POWER_SHUTTER = "pref_power_shutter";
+    public static final String KEY_STORAGE = "pref_camera_storage_key"; 
     public static final String KEY_ISO_MODE = "pref_camera_iso_key";
     public static final String KEY_JPEG = "pref_camera_jpeg_key";
     public static final String KEY_VIDEOCAMERA_JPEG = "pref_camera_video_jpeg_key";
@@ -171,6 +172,7 @@ public class CameraSettings {
         ListPreference sceneMode = group.findPreference(KEY_SCENE_MODE);
         ListPreference flashMode = group.findPreference(KEY_FLASH_MODE);
         ListPreference focusMode = group.findPreference(KEY_FOCUS_MODE);
+        ListPreference storageMode = group.findPreference(KEY_STORAGE);
         IconListPreference exposure =
                 (IconListPreference) group.findPreference(KEY_EXPOSURE);
         IconListPreference cameraIdPref =
@@ -186,6 +188,10 @@ public class CameraSettings {
 
         // Since the screen could be loaded from different resources, we need
         // to check if the preference is available here
+        if (ActivityBase.mNoExt) {
+            removePreference(group, storageMode.getKey());
+        }
+        
         if (videoQuality != null) {
             filterUnsupportedOptions(group, videoQuality, getSupportedVideoQuality());
         }
