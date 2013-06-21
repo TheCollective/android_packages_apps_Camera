@@ -157,6 +157,9 @@ public class Util {
     // Samsung ZSL mode
     private static boolean sEnableZSL;
 
+    // Workaround for cameras who need aspect ratio fixes
+    private static boolean sEnableAspectRatioFixes;
+
     // Workaround for QC cameras with broken face detection on front camera
     private static boolean sNoFaceDetectOnFrontCamera;
 
@@ -167,6 +170,9 @@ public class Util {
 
     // Do not change the focus mode when TTF is used
     private static boolean sNoFocusModeChangeForTouch;
+
+    // Send magic command to hardware for Samsung ZSL
+    private static boolean sSendMagicSamsungZSLCommand;
 
     private static SpeechRecognizer mSpeechRecognizer;
     private static Intent mSpeechRecognizerIntent;
@@ -195,6 +201,8 @@ public class Util {
         sProfileVideoSize = context.getResources().getBoolean(R.bool.useProfileVideoSize);
         sEarlyVideoSize = context.getResources().getBoolean(R.bool.needsEarlyVideoSize);
         sEnableZSL = context.getResources().getBoolean(R.bool.enableZSL);
+        sEnableAspectRatioFixes = context.getResources().getBoolean(
+                R.bool.enableAspectRatioFixes);
         sNoFaceDetectOnFrontCamera = context.getResources().getBoolean(
                 R.bool.noFaceDetectOnFrontCamera);
 
@@ -203,8 +211,11 @@ public class Util {
                 R.integer.softwareHDRExposureSettleTime);
         sDoSoftwareHDRShot = false;
 
-         sNoFocusModeChangeForTouch = context.getResources().getBoolean(
+        sNoFocusModeChangeForTouch = context.getResources().getBoolean(
                 R.bool.useContinuosFocusForTouch);
+
+        sSendMagicSamsungZSLCommand = context.getResources().getBoolean(
+                R.bool.sendMagicSamsungZSLCommand);
 
         /* Voice Shutter */
         mSpeechRecognizer = SpeechRecognizer.createSpeechRecognizer(context);
@@ -274,6 +285,14 @@ public class Util {
         return sNoFocusModeChangeForTouch;
     }
 
+    public static boolean sendMagicSamsungZSLCommand() {
+        return sSendMagicSamsungZSLCommand;
+    }
+
+    public static boolean enableAspectRatioFixes() {
+        return sEnableAspectRatioFixes;
+    }
+
     public static void enableSpeechRecognition(boolean enable, PhotoModule module) {
         if (module != null) {
             mPhotoModule = module;
@@ -284,8 +303,8 @@ public class Util {
         }
         if (mPhotoModule == null) {
             /* if no photomodule ever got passed, it wasn't activated. Ignore
-invocation */
-            return;
+               invocation */
+            return; 
         }
         mPhotoModule.updateNoHandsIndicator();
         /* Always make sure there are no pending listeners */
