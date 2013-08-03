@@ -27,6 +27,8 @@ import android.hardware.Camera.CameraInfo;
 import android.hardware.Camera.Parameters;
 import android.hardware.Camera.Size;
 import android.media.CamcorderProfile;
+import android.os.storage.StorageManager;
+import android.os.storage.StorageVolume;
 import android.util.FloatMath;
 import android.util.Log;
 
@@ -34,6 +36,7 @@ import com.android.gallery3d.common.ApiHelper;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -66,16 +69,17 @@ public class CameraSettings {
     public static final String KEY_VIDEO_FIRST_USE_HINT_SHOWN = "pref_video_first_use_hint_shown_key";
     public static final String KEY_VOICE_FIRST_USE_HINT_SHOWN = "pref_voice_first_use_hint_shown_key";
     public static final String KEY_POWER_SHUTTER = "pref_power_shutter";
-    public static final String KEY_STORAGE = "pref_camera_storage_key"; 
     public static final String KEY_ISO_MODE = "pref_camera_iso_key";
-    public static final String KEY_SMART_CAPTURE = "pref_smart_capture";
     public static final String KEY_JPEG = "pref_camera_jpeg_key";
     public static final String KEY_VIDEOCAMERA_JPEG = "pref_camera_video_jpeg_key";
     public static final String KEY_COLOR_EFFECT = "pref_camera_coloreffect_key";
     public static final String KEY_VIDEOCAMERA_COLOR_EFFECT = "pref_camera_video_coloreffect_key";
     public static final String KEY_BURST_MODE = "pref_camera_burst_key";
+    public static final String KEY_STORAGE = "pref_camera_storage_key";
     public static final String KEY_NOHANDS_MODE = "pref_nohands_shutter_key";
     public static final String KEY_PERSISTENT_NOHANDS = "pref_nohands_persistent_key";
+    public static final String KEY_VIDEO_HDR = "pref_video_hdr_key";
+    public static final String KEY_SHUTTER_SPEED = "pref_shutter_speed_key";
 
     public static final String EXPOSURE_DEFAULT_VALUE = "0";
     public static final String VALUE_ON = "on";
@@ -176,7 +180,6 @@ public class CameraSettings {
         ListPreference sceneMode = group.findPreference(KEY_SCENE_MODE);
         ListPreference flashMode = group.findPreference(KEY_FLASH_MODE);
         ListPreference focusMode = group.findPreference(KEY_FOCUS_MODE);
-        ListPreference storageMode = group.findPreference(KEY_STORAGE);
         IconListPreference exposure =
                 (IconListPreference) group.findPreference(KEY_EXPOSURE);
         IconListPreference cameraIdPref =
@@ -186,16 +189,14 @@ public class CameraSettings {
         ListPreference videoEffect = group.findPreference(KEY_VIDEO_EFFECT);
         ListPreference cameraHdr = group.findPreference(KEY_CAMERA_HDR);
         ListPreference isoMode = group.findPreference(KEY_ISO_MODE);
-        ListPreference jpegQuality = group.findPreference(KEY_JPEG);
         ListPreference colorEffect = group.findPreference(KEY_COLOR_EFFECT);
         ListPreference videoColorEffect = group.findPreference(KEY_VIDEOCAMERA_COLOR_EFFECT);
+        ListPreference storage = group.findPreference(KEY_STORAGE);
+        ListPreference videoHdr = group.findPreference(KEY_VIDEO_HDR);
+        ListPreference shutterSpeed = group.findPreference(KEY_SHUTTER_SPEED);
 
         // Since the screen could be loaded from different resources, we need
         // to check if the preference is available here
-        if (ActivityBase.mNoExt) {
-            removePreference(group, storageMode.getKey());
-        }
-        
         if (videoQuality != null) {
             filterUnsupportedOptions(group, videoQuality, getSupportedVideoQuality());
         }
@@ -263,6 +264,46 @@ public class CameraSettings {
         if (videoColorEffect != null) {
             filterUnsupportedOptions(group,
                     videoColorEffect, mParameters.getSupportedColorEffects());
+        }
+        if (storage != null) {
+            buildStorage(group, storage);
+        }
+        if (videoHdr != null && !Util.isVideoHdrSupported(mParameters)) {
+            removePreference(group, videoHdr.getKey());
+        }
+        if (shutterSpeed != null && !Util.isShutterSpeedSupported(mParameters)) {
+            removePreference(group, shutterSpeed.getKey());
+        }
+    }
+
+    private void buildStorage(PreferenceGroup group, ListPreference storage) {
+        StorageManager sm = (StorageManager) mContext.getSystemService(Context.STORAGE_SERVICE);
+        StorageVolume[] volumes = sm.getVolumeList();
+        String[] entries = new String[volumes.length];
+        String[] entryValues = new String[volumes.length];
+        int primary = 0;
+
+        if (volumes.length < 2) {
+            // No need for storage setting  264
+            removePreference(group, storage.getKey());
+            return;
+        }
+
+        for (int i = 0; i < volumes.length; i++) {
+            StorageVolume v = volumes[i];
+            entries[i] = v.getDescription(mContext);
+            entryValues[i] = v.getPath();
+            if (v.isPrimary()) {
+                primary = i;
+            }
+        }
+        storage.setEntries(entries);
+        storage.setEntryValues(entryValues);
+
+        // Filter saved invalid value
+        if (storage.findIndexOfValue(storage.getValue()) < 0) {
+            // Default to the primary storage
+            storage.setValueIndex(primary);
         }
     }
 
@@ -646,6 +687,21 @@ public class CameraSettings {
     public static void dumpParameters(Parameters params) {
         Set<String> sortedParams = new TreeSet<String>();
         sortedParams.addAll(Arrays.asList(params.flatten().split(";")));
-        Log.d(TAG, "Parameters: " + sortedParams.toString());
+        StringBuilder sb = new StringBuilder();
+        sb.append("[");
+        Iterator<String> i = sortedParams.iterator();
+        while (i.hasNext()) {
+            String nextParam = i.next();
+            if ((sb.length() + nextParam.length()) > 2044) {
+                Log.d(TAG, "Parameters: " + sb.toString());
+                sb = new StringBuilder();
+            }
+            sb.append(nextParam);
+            if (i.hasNext()) {
+                sb.append(", ");
+            }
+        }
+        sb.append("]");
+        Log.d(TAG, "Parameters: " + sb.toString());
     }
 }

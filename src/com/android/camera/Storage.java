@@ -37,17 +37,27 @@ import java.io.FileOutputStream;
 public class Storage {
     private static final String TAG = "CameraStorage";
 
-    public static final String DCIM =
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).toString();
-
-    // External SD DCIM (/storage/sdcard1 is android default external sd location)
-    public static final String EXTDCIM = "/storage/sdcard1/DCIM";
-    public static final String EXTMMC = "/storage/sdcard1";
-
     public static final long UNAVAILABLE = -1L;
     public static final long PREPARING = -2L;
     public static final long UNKNOWN_SIZE = -3L;
     public static final long LOW_STORAGE_THRESHOLD= 50000000;
+
+    private String mRoot = Environment.getExternalStorageDirectory().toString();
+    private static Storage sStorage;
+
+    // Singleton
+    private Storage() {}
+
+    public static Storage getStorage() {
+        if (sStorage == null) {
+            sStorage = new Storage();
+        }
+        return sStorage;
+    }
+
+    public void setRoot(String root) {
+        mRoot = root;
+    }
 
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
     private static void setImageSize(ContentValues values, int width, int height) {
@@ -58,7 +68,8 @@ public class Storage {
         }
     }
 
-    public static void writeFile(String path, byte[] data) {
+    public String writeFile(String title, byte[] data) {
+        String path = generateFilepath(title);
         FileOutputStream out = null;
         try {
             out = new FileOutputStream(path);
@@ -71,21 +82,21 @@ public class Storage {
             } catch (Exception e) {
             }
         }
+        return path;
     }
 
     // Save the image and add it to media store.
-    public static Uri addImage(ContentResolver resolver, String title,
+    public Uri addImage(ContentResolver resolver, String title,
             long date, Location location, int orientation, byte[] jpeg,
             int width, int height) {
         // Save the image.
-        String path = generateFilepath(title);
-        writeFile(path, jpeg);
+        String path = writeFile(title, jpeg);
         return addImage(resolver, title, date, location, orientation,
                 jpeg.length, path, width, height);
     }
 
     // Add the image to media store.
-    public static Uri addImage(ContentResolver resolver, String title,
+    public Uri addImage(ContentResolver resolver, String title,
             long date, Location location, int orientation, int jpegLength,
             String path, int width, int height) {
         // Insert into MediaStore.
@@ -126,7 +137,7 @@ public class Storage {
     //
     // We also insert hint values for the WIDTH and HEIGHT fields to give
     // correct aspect ratio before the real values are updated in updateImage().
-    public static Uri newImage(ContentResolver resolver, String title,
+    public Uri newImage(ContentResolver resolver, String title,
             long date, int width, int height) {
         String path = generateFilepath(title);
 
@@ -156,7 +167,7 @@ public class Storage {
     // here. This method also save the image data into the file.
     //
     // Returns true if the update is successful.
-    public static boolean updateImage(ContentResolver resolver, Uri uri,
+    public boolean updateImage(ContentResolver resolver, Uri uri,
             String title, Location location, int orientation, byte[] jpeg,
             int width, int height) {
         // Save the image.
@@ -206,7 +217,7 @@ public class Storage {
         return true;
     }
 
-    public static void deleteImage(ContentResolver resolver, Uri uri) {
+    public void deleteImage(ContentResolver resolver, Uri uri) {
         try {
             resolver.delete(uri, null, null);
         } catch (Throwable th) {
@@ -214,30 +225,27 @@ public class Storage {
         }
     }
 
-    public static String generateDCIM() {
-        // External DCIM check
-        if(!ActivityBase.mStorageExternal) {
-            return DCIM.toString();
-        } else {
-            return EXTDCIM.toString();
-        }
+    private String generateDCIM() {
+        return new File(mRoot, Environment.DIRECTORY_DCIM).toString();
     }
 
-    public static String generateDir() {
-        // External DCIM check
+    public String generateDirectory() {
         return generateDCIM() + "/Camera";
     }
 
-    public static String generateFilepath(String title) {
-        // External DCIM check
-        return generateDir() + '/' + title + ".jpg";
+    private String generateFilepath(String title) {
+        return generateDirectory() + '/' + title + ".jpg";
     }
 
-    public static int generateBucketIdInt() {
-        return generateDir().toLowerCase().hashCode();
+    public String generateBucketId() {
+        return String.valueOf(generateDirectory().toLowerCase().hashCode());
     }
 
-    public static long getAvailableSpace() {
+    public int generateBucketIdInt() {
+        return generateDirectory().toLowerCase().hashCode();
+    }
+
+    public long getAvailableSpace() {
         String state = Environment.getExternalStorageState();
         Log.d(TAG, "External storage state=" + state);
         if (Environment.MEDIA_CHECKING.equals(state)) {
@@ -247,14 +255,14 @@ public class Storage {
             return UNAVAILABLE;
         }
 
-        File dir = new File(generateDir());
+        File dir = new File(generateDirectory());
         dir.mkdirs();
         if (!dir.isDirectory() || !dir.canWrite()) {
             return UNAVAILABLE;
         }
 
         try {
-            StatFs stat = new StatFs(generateDir());
+            StatFs stat = new StatFs(generateDirectory());
             return stat.getAvailableBlocks() * (long) stat.getBlockSize();
         } catch (Exception e) {
             Log.i(TAG, "Fail to access external storage", e);
@@ -266,7 +274,7 @@ public class Storage {
      * OSX requires plugged-in USB storage to have path /DCIM/NNNAAAAA to be
      * imported. This is a temporary fix for bug#1655552.
      */
-    public static void ensureOSXCompatible() {
+    public void ensureOSXCompatible() {
         File nnnAAAAA = new File(generateDCIM(), "100ANDRO");
         if (!(nnnAAAAA.exists() || nnnAAAAA.mkdirs())) {
             Log.e(TAG, "Failed to create " + nnnAAAAA.getPath());

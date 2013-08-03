@@ -28,14 +28,11 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences.Editor;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
+import android.graphics.SurfaceTexture;
 import android.hardware.Camera.CameraInfo;
 import android.hardware.Camera.Parameters;
 import android.hardware.Camera.PictureCallback;
 import android.hardware.Camera.Size;
-import android.hardware.Sensor;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorEvent;
-import android.hardware.SensorManager;
 import android.location.Location;
 import android.media.CamcorderProfile;
 import android.media.CameraProfile;
@@ -93,8 +90,7 @@ public class VideoModule implements CameraModule,
     MediaRecorder.OnErrorListener,
     MediaRecorder.OnInfoListener,
     EffectsRecorder.EffectsListener,
-    PieRenderer.PieListener,
-    SensorEventListener {
+    PieRenderer.PieListener {
 
     private static final String TAG = "CAM_VideoModule";
 
@@ -160,9 +156,6 @@ public class VideoModule implements CameraModule,
 
     private boolean mIsVideoCaptureIntent;
     private boolean mQuickCapture;
-
-    private SensorManager mSensorManager;
-    private long mLastVid = 0;
 
     private MediaRecorder mMediaRecorder;
     private EffectsRecorder mEffectsRecorder;
@@ -232,7 +225,7 @@ public class VideoModule implements CameraModule,
     private View mOnScreenIndicators;
     private ImageView mFlashIndicator;
     private ImageView mExposureIndicator;
-
+    private ImageView mHdrIndicator;
     private final Handler mHandler = new MainHandler();
 
     // The degrees of the device rotated clockwise from its natural orientation.
@@ -241,6 +234,7 @@ public class VideoModule implements CameraModule,
     private int mZoomValue;  // The current zoom value.
     private int mZoomMax;
     private List<Integer> mZoomRatios;
+    private boolean mZoomSetByKey = false;
     private boolean mRestoreFlash;  // This is used to check if we need to restore the flash
                                     // status when going back from gallery.
 
@@ -434,15 +428,14 @@ public class VideoModule implements CameraModule,
         mPreferences.setLocalId(mActivity, mCameraId);
         CameraSettings.upgradeLocalPreferences(mPreferences.getLocal());
 
+        mActivity.setStoragePath(mPreferences);
+
         mActivity.mNumberOfCameras = CameraHolder.instance().getNumberOfCameras();
         mPrefVideoEffectDefault = mActivity.getString(R.string.pref_video_effect_default);
         resetEffect();
 
-        // Setup Custom Settings
-        updateCustomSettings();
-
-        // Initialize External storage settings
-        mActivity.initStoragePrefs(mPreferences);
+        // Power shutter
+        mActivity.initPowerShutter(mPreferences);
 
         // we need to reset exposure for the preview
         resetExposureCompensation();
@@ -899,12 +892,6 @@ public class VideoModule implements CameraModule,
         PopupManager.getInstance(mActivity).notifyShowPopup(null);
 
         mVideoNamer = new VideoNamer();
-
-        // Init some prefs
-        updateCustomSettings();
-
-        // Initialize External storage settings
-        mActivity.initStoragePrefs(mPreferences);
     }
 
     private void setDisplayOrientation() {
@@ -939,8 +926,14 @@ public class VideoModule implements CameraModule,
         try {
             if (!effectsActive()) {
                 if (ApiHelper.HAS_SURFACE_TEXTURE) {
-                    mActivity.mCameraDevice.setPreviewTextureAsync(
-                            ((CameraScreenNail) mActivity.mCameraScreenNail).getSurfaceTexture());
+                    SurfaceTexture sT = null;
+
+                    if (Util.mSwitchCamera) {
+                        sT = Util.newSurfaceLayer(mCameraDisplayOrientation, mParameters, mActivity);
+                    } else {
+                        sT = ((CameraScreenNail) mActivity.mCameraScreenNail).getSurfaceTexture();
+                    }
+                    mActivity.mCameraDevice.setPreviewTextureAsync(sT);
                 } else {
                     mActivity.mCameraDevice.setPreviewDisplayAsync(mPreviewSurfaceView.getHolder());
                 }
@@ -955,8 +948,6 @@ public class VideoModule implements CameraModule,
         }
 
         mPreviewing = true;
-
-        if (mActivity.mSmartCapture) startSmartCapture();
     }
 
     private void stopPreview() {
@@ -981,7 +972,6 @@ public class VideoModule implements CameraModule,
     // By default, we want to close the effects as well with the camera.
     private void closeCamera() {
         closeCamera(true);
-        stopSmartCapture();
     }
 
     // In certain cases, when the effects are active, we may want to shutdown
@@ -1463,7 +1453,7 @@ public class VideoModule implements CameraModule,
         // Used when emailing.
         String filename = title + convertOutputFormatToFileExt(outputFileFormat);
         String mime = convertOutputFormatToMimeType(outputFileFormat);
-        String path = Storage.generateDir() + '/' + filename;
+        String path = Storage.getStorage().generateDirectory() + '/' + filename;
         String tmpPath = path + ".tmp";
         mCurrentVideoValues = new ContentValues(7);
         mCurrentVideoValues.put(Video.Media.TITLE, title);
@@ -1952,31 +1942,6 @@ public class VideoModule implements CameraModule,
                 UPDATE_RECORD_TIME, actualNextUpdateDelay);
     }
 
-    private void updateCustomSettings() {
-        mActivity.initPowerShutter(mPreferences);
-        mActivity.initStoragePrefs(mPreferences);
-        mActivity.initSmartCapture(mPreferences);
-        if (mActivity.mSmartCapture) {
-            startSmartCapture();
-        } else {
-            stopSmartCapture();
-        }
-    }
-
-    private void startSmartCapture() {
-        mSensorManager = mActivity.getSensorManager();
-        mSensorManager.registerListener(this,
-                mSensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY),
-                SensorManager.SENSOR_DELAY_UI);
-    }
-
-    private void stopSmartCapture() {
-        if (mSensorManager != null) {
-            mSensorManager.unregisterListener(this,
-                    mSensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY));
-        }
-    }
-
     private static boolean isSupported(String value, List<String> supported) {
         return supported == null ? false : supported.indexOf(value) >= 0;
     }
@@ -2082,6 +2047,14 @@ public class VideoModule implements CameraModule,
             mParameters.setExposureCompensation(value);
         } else {
             Log.w(TAG, "invalid exposure range: " + value);
+        }
+
+        // HDR
+        if (Util.isVideoHdrSupported(mParameters)) {
+            String videohdr = mPreferences.getString(
+                    CameraSettings.KEY_VIDEO_HDR,
+                    mActivity.getString(R.string.pref_video_hdr_default));
+            mParameters.set(mActivity.getString(R.string.videoHdrParam), videohdr);
         }
 
         CameraSettings.dumpParameters(mParameters);
@@ -2212,23 +2185,6 @@ public class VideoModule implements CameraModule,
         throw new RuntimeException("Error during recording!", exception);
     }
 
-    @Override
-    public void onSensorChanged(SensorEvent event) {
-        // Minimum 2 second timrout for start/stop record
-        // else it will crash the thread on low end devices
-        if (((SystemClock.uptimeMillis() - mLastVid) > 2000) && mActivity.mShowCameraAppView) {
-            int currentProx = (int) event.values[0];
-            if (currentProx == 0) {
-                onShutterButtonClick();
-                mLastVid = SystemClock.uptimeMillis();
-            }
-        }
-    }
-
-    @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy) {
-    }
-
     private void initializeControlByIntent() {
         mBlocker = mRootView.findViewById(R.id.blocker);
         mMenu = mRootView.findViewById(R.id.menu);
@@ -2243,6 +2199,7 @@ public class VideoModule implements CameraModule,
         mOnScreenIndicators = mRootView.findViewById(R.id.on_screen_indicators);
         mFlashIndicator = (ImageView) mRootView.findViewById(R.id.menu_flash_indicator);
         mExposureIndicator = (ImageView) mOnScreenIndicators.findViewById(R.id.menu_exposure_indicator);
+        mHdrIndicator = (ImageView) mOnScreenIndicators.findViewById(R.id.menu_hdr_indicator);
         if (mIsVideoCaptureIntent) {
             mActivity.hideSwitcher();
             // Cannot use RotateImageView for "done" and "cancel" button because
@@ -2403,8 +2360,9 @@ public class VideoModule implements CameraModule,
             // Check if the current effects selection has changed
             if (updateEffectSelection()) return;
 
-            if (ActivityBase.mStorageToggled) {
-                mActivity.recreate();
+            if (mActivity.setStoragePath(mPreferences)) {
+                mActivity.updateStorageSpaceAndHint();
+                mActivity.reuseCameraScreenNail(!mIsVideoCaptureIntent);
             }
 
             readVideoPreferences();
@@ -2427,14 +2385,14 @@ public class VideoModule implements CameraModule,
                 setCameraParameters();
             }
             updateOnScreenIndicators();
-            updateCustomSettings();
-            mActivity.initStoragePrefs(mPreferences);
+            mActivity.initPowerShutter(mPreferences);
         }
     }
 
     private void updateOnScreenIndicators() {
         updateFlashOnScreenIndicator(mParameters.getFlashMode());
         updateExposureOnScreenIndicator(CameraSettings.readExposure(mPreferences));
+        updateHdrOnScreenIndicator();
     }
 
     private void updateFlashOnScreenIndicator(String value) {
@@ -2452,6 +2410,18 @@ public class VideoModule implements CameraModule,
             } else {
                 mFlashIndicator.setImageResource(R.drawable.ic_indicator_flash_off);
             }
+        }
+    }
+
+    private void updateHdrOnScreenIndicator() {
+        if (mHdrIndicator == null) {
+            return;
+        }
+        String videoHdr = mParameters.get(mActivity.getString(R.string.videoHdrParam));
+        if (videoHdr != null && videoHdr.equals(mActivity.getString(R.string.setting_on_value))) {
+            mHdrIndicator.setImageResource(R.drawable.ic_indicator_hdr_on);
+        } else {
+            mHdrIndicator.setImageResource(R.drawable.ic_indicator_hdr_off);
         }
     }
 
@@ -2569,24 +2539,35 @@ public class VideoModule implements CameraModule,
         return false;
     }
 
-    private void processZoomValueChanged(int index) {
+    private void processZoomValueChanged(int index){
         if (index >= 0 && index <= mZoomMax) {
-            mZoomRenderer.setZoom(index);
+             processZoomValueChanged(index,true);
+             mZoomSetByKey = true;
+        }
+    }
+
+    private void processZoomValueChanged(int index, boolean fromKey) {
+
+        if(fromKey || (!fromKey && !mZoomSetByKey)){
             // Not useful to change zoom value when the activity is paused.
             if (mPaused) return;
             mZoomValue = index;
             // Set zoom parameters asynchronously
             mParameters.setZoom(mZoomValue);
             mActivity.mCameraDevice.setParametersAsync(mParameters);
-            Parameters p = mActivity.mCameraDevice.getParameters();
-            mZoomRenderer.setZoomValue(mZoomRatios.get(p.getZoom()));
+            if (mZoomRenderer != null) {
+                Parameters p = mActivity.mCameraDevice.getParameters();
+                mZoomRenderer.setZoomValue(mZoomRatios.get(p.getZoom()));
+            }
+        }else{
+            mZoomSetByKey = false;
         }
     }
 
     private class ZoomChangeListener implements ZoomRenderer.OnZoomChangedListener {
         @Override
         public void onZoomValueChanged(int index) {
-            processZoomValueChanged(index);
+            processZoomValueChanged(index,false);
         }
 
         @Override
@@ -2674,8 +2655,8 @@ public class VideoModule implements CameraModule,
     public void updateCameraAppView() {
         if (!mPreviewing || mParameters.getFlashMode() == null) return;
 
-        // Initialize External storage settings
-        mActivity.initStoragePrefs(mPreferences);
+        // Setup Power shutter
+        mActivity.initPowerShutter(mPreferences);
 
         // When going to and back from gallery, we need to turn off/on the flash.
         if (!mActivity.mShowCameraAppView) {
@@ -2751,7 +2732,7 @@ public class VideoModule implements CameraModule,
         String title = Util.createJpegName(dateTaken);
         int orientation = Exif.getOrientation(data);
         Size s = mParameters.getPictureSize();
-        Uri uri = Storage.addImage(mContentResolver, title, dateTaken, loc, orientation, data,
+        Uri uri = Storage.getStorage().addImage(mContentResolver, title, dateTaken, loc, orientation, data,
                 s.width, s.height);
         if (uri != null) {
             Util.broadcastNewPicture(mActivity, uri);

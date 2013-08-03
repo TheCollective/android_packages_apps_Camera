@@ -27,6 +27,8 @@ import android.content.Intent;
 import android.content.SharedPreferences.Editor;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera.CameraInfo;
 import android.hardware.Camera.Face;
@@ -34,10 +36,6 @@ import android.hardware.Camera.FaceDetectionListener;
 import android.hardware.Camera.Parameters;
 import android.hardware.Camera.PictureCallback;
 import android.hardware.Camera.Size;
-import android.hardware.Sensor;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorEvent;
-import android.hardware.SensorManager;
 import android.location.Location;
 import android.media.CameraProfile;
 import android.net.Uri;
@@ -80,6 +78,7 @@ import com.android.camera.ui.ZoomRenderer;
 import com.android.gallery3d.app.CropImage;
 import com.android.gallery3d.common.ApiHelper;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -98,8 +97,7 @@ public class PhotoModule
     PreviewFrameLayout.OnSizeChangedListener,
     ShutterButton.OnShutterButtonListener,
     SurfaceHolder.Callback,
-    PieRenderer.PieListener,
-    SensorEventListener {
+    PieRenderer.PieListener {
 
     private static final String TAG = "CAM_PhotoModule";
 
@@ -160,6 +158,7 @@ public class PhotoModule
     private int mZoomValue;  // The current zoom value.
     private int mZoomMax;
     private List<Integer> mZoomRatios;
+    private boolean mZoomSetByKey = false;
 
     private Parameters mInitialParams;
     private boolean mFocusAreaSupported;
@@ -179,7 +178,6 @@ public class PhotoModule
     private boolean mFaceDetectionStarted = false;
 
     private PreviewFrameLayout mPreviewFrameLayout;
-    private Object mSurfaceTexture;
 
     // for API level 10
     private PreviewSurfaceView mPreviewSurfaceView;
@@ -261,8 +259,6 @@ public class PhotoModule
     private int mCameraState = PREVIEW_STOPPED;
     private boolean mSnapshotOnIdle = false;
 
-    private SensorManager mSensorManager; 
-
     private ContentResolver mContentResolver;
 
     private LocationManager mLocationManager;
@@ -315,15 +311,16 @@ public class PhotoModule
     private int mBurstShotsDone = 0;
     private boolean mBurstShotInProgress = false;
 
-    // Camera timer.
-    private boolean mTimerMode = false;
-
     // Software HDR mode
     private boolean mHDRShotInProgress = false;
     private boolean mHDRExposureSet = false;
     private boolean mHDRRendering = false;
     private ProgressDialog mHdrProgressDialog = null;
     private static ArrayList<Uri> sHDRShotsPaths = new ArrayList<Uri>();
+    private int mResetExposure;
+
+    // Camera timer.
+    private boolean mTimerMode = false;
 
     private boolean mQuickCapture;
     protected int mCaptureMode;
@@ -489,18 +486,19 @@ public class PhotoModule
 
         mActivity.getLayoutInflater().inflate(R.layout.photo_module, (ViewGroup) mRootView);
 
+        mPreferences.setLocalId(mActivity, mCameraId);
+        CameraSettings.upgradeLocalPreferences(mPreferences.getLocal());
+        mActivity.setStoragePath(mPreferences);
+
         // Surface texture is from camera screen nail and startPreview needs it.
         // This must be done before startPreview.
         mIsImageCaptureIntent = isImageCaptureIntent();
-        mActivity.initStoragePrefs(mPreferences);
         if (reuseNail) {
             mActivity.reuseCameraScreenNail(!mIsImageCaptureIntent);
         } else {
             mActivity.createCameraScreenNail(!mIsImageCaptureIntent);
         }
 
-        mPreferences.setLocalId(mActivity, mCameraId);
-        CameraSettings.upgradeLocalPreferences(mPreferences.getLocal());
         // we need to reset exposure for the preview
         resetExposureCompensation();
         // Starting the preview needs preferences, camera screen nail, and
@@ -615,6 +613,7 @@ public class PhotoModule
         initializeZoom();
         updateOnScreenIndicators();
         showTapToFocusToastIfNeeded();
+        onFullScreenChanged(mActivity.isInCameraApp());
     }
 
     private void initializePhotoControl() {
@@ -688,7 +687,7 @@ public class PhotoModule
         queue.addIdleHandler(new MessageQueue.IdleHandler() {
             @Override
             public boolean queueIdle() {
-                Storage.ensureOSXCompatible();
+                Storage.getStorage().ensureOSXCompatible();
                 return false;
             }
         });
@@ -714,9 +713,16 @@ public class PhotoModule
         }
     }
 
-    private void processZoomValueChanged(int index) {
+    private void processZoomValueChanged(int index){
         if (index >= 0 && index <= mZoomMax) {
-            mZoomRenderer.setZoom(index);
+            processZoomValueChanged(index,true);
+            mZoomSetByKey = true;
+        }
+    }
+
+    private void processZoomValueChanged(int index,boolean fromKey) {
+
+        if(fromKey || (!fromKey && !mZoomSetByKey)){
             // Not useful to change zoom value when the activity is paused.
             if (mPaused) return;
             mZoomValue = index;
@@ -728,13 +734,15 @@ public class PhotoModule
                 Parameters p = mCameraDevice.getParameters();
                 mZoomRenderer.setZoomValue(mZoomRatios.get(p.getZoom()));
             }
+        }else{
+            mZoomSetByKey = false;
         }
     }
 
     private class ZoomChangeListener implements ZoomRenderer.OnZoomChangedListener {
         @Override
         public void onZoomValueChanged(int index) {
-            processZoomValueChanged(index);
+            processZoomValueChanged(index,false);
         }
 
         @Override
@@ -971,31 +979,6 @@ public class PhotoModule
         updateNoHandsIndicator();
     }
 
-    private void updateCustomSettings() {
-        mActivity.initPowerShutter(mPreferences);
-        mActivity.initStoragePrefs(mPreferences);
-        mActivity.initSmartCapture(mPreferences);
-        if (mActivity.mSmartCapture) {
-            startSmartCapture();
-        } else {
-            stopSmartCapture();
-        }
-    }
-
-    private void startSmartCapture() {
-        mSensorManager = mActivity.getSensorManager();
-        mSensorManager.registerListener(this,
-                mSensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY),
-                SensorManager.SENSOR_DELAY_UI);
-    }
-
-    private void stopSmartCapture() {
-        if (mSensorManager != null) {
-            mSensorManager.unregisterListener(this,
-                    mSensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY));
-        }
-    }
-
     private final class ShutterCallback
             implements android.hardware.Camera.ShutterCallback {
         @Override
@@ -1076,7 +1059,9 @@ public class PhotoModule
                 ((CameraScreenNail) mActivity.mCameraScreenNail).animateSlide();
             }
             mFocusManager.updateFocusUI(); // Ensure focus indicator is hidden.
-            if (!mIsImageCaptureIntent && !Util.enableZSL()) {
+            if (!mIsImageCaptureIntent && (!Util.enableZSL()
+                    || (mSceneMode == Util.SCENE_MODE_HDR
+                    && Util.needSamsungHDRFormat()))) {
                 if (ApiHelper.CAN_START_PREVIEW_IN_JPEG_CALLBACK) {
                     setupPreview();
                 } else {
@@ -1085,9 +1070,18 @@ public class PhotoModule
                     // time before starting the preview.
                     mHandler.sendEmptyMessageDelayed(SETUP_PREVIEW, 300);
                 }
-            } else {
-                mFocusManager.resetTouchFocus();
-                setCameraState(IDLE);
+            } else if (Util.enableZSL() && !(mSceneMode == Util.SCENE_MODE_HDR
+                        && Util.needSamsungHDRFormat())) {
+                // In ZSL mode, the preview is not stopped, due to which the
+                // review mode (ImageCapture) doesn't show the captured frame.
+                // Hence stop the preview if ZSL mode is active so that the
+                // preview can be restarted using the onReviewRetakeClicked().
+                if (mIsImageCaptureIntent) {
+                    stopPreview();
+                } else {
+                    mFocusManager.resetTouchFocus();
+                    setCameraState(IDLE);
+                }
             }
 
             if (!mIsImageCaptureIntent) {
@@ -1095,7 +1089,9 @@ public class PhotoModule
                 Size s = mParameters.getPictureSize();
                 int orientation = Exif.getOrientation(jpegData);
                 int width, height;
-                if ((mJpegRotation + orientation) % 180 == 0) {
+                if ((mJpegRotation + orientation) % 180 == 0
+                        || (mSceneMode == Util.SCENE_MODE_HDR
+                        && Util.needSamsungHDRFormat())) {
                     width = s.width;
                     height = s.height;
                 } else {
@@ -1131,6 +1127,9 @@ public class PhotoModule
             if (mSnapshotOnIdle && mBurstShotsDone > 0) {
                 mHandler.post(mDoSnapRunnable);
             }
+            // Reset exposure
+            mParameters.setExposureCompensation(mResetExposure);
+            mCameraDevice.setParameters(mParameters);
         }
     }
 
@@ -1241,6 +1240,26 @@ public class PhotoModule
                     }
                     r = mQueue.get(0);
                 }
+
+                if (mSceneMode == Util.SCENE_MODE_HDR && Util.needSamsungHDRFormat()) {
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    Bitmap bm = Util.decodeYUV422P(r.data, r.width, r.height);
+                    if (mJpegRotation != 0) {
+                        Matrix matrix = new Matrix();
+                        matrix.postRotate(mJpegRotation);
+                        bm = Bitmap.createBitmap(bm, 0, 0, r.width, r.height, matrix, true);
+                    }
+                    if (mJpegRotation % 180 != 0) {
+                        int x=r.height;
+                        int y=r.width;
+                        r.width = x;
+                        r.height = y;
+                    }
+                    bm.compress(Bitmap.CompressFormat.JPEG, Integer.parseInt(mPreferences.getString(
+                            CameraSettings.KEY_JPEG, mActivity.getString(
+                            R.string.pref_camera_jpeg_default))), baos);
+                    r.data = baos.toByteArray();
+                }
                 storeImage(r.data, r.uri, r.title, r.loc, r.width, r.height,
                         r.orientation);
                 synchronized (this) {
@@ -1280,7 +1299,7 @@ public class PhotoModule
         // Runs in saver thread
         private void storeImage(final byte[] data, Uri uri, String title,
                 Location loc, int width, int height, int orientation) {
-            boolean ok = Storage.updateImage(mContentResolver, uri, title, loc,
+            boolean ok = Storage.getStorage().updateImage(mContentResolver, uri, title, loc,
                     orientation, data, width, height);
             if (ok) {
                 Util.broadcastNewPicture(mActivity, uri);
@@ -1370,14 +1389,14 @@ public class PhotoModule
         // Runs in namer thread
         private void generateUri() {
             mTitle = Util.createJpegName(mDateTaken);
-            mUri = Storage.newImage(mResolver, mTitle, mDateTaken, mWidth, mHeight);
+            mUri = Storage.getStorage().newImage(mResolver, mTitle, mDateTaken, mWidth, mHeight);
             sHDRShotsPaths.add(mUri);
         }
 
         // Runs in namer thread
         private void cleanOldUri() {
             if (mUri == null) return;
-            Storage.deleteImage(mResolver, mUri);
+            Storage.getStorage().deleteImage(mResolver, mUri);
             mUri = null;
         }
     }
@@ -1428,7 +1447,13 @@ public class PhotoModule
             animateFlash();
         }
 
-        // Set rotation and gps data.
+        // Save data
+        mResetExposure = mParameters.getExposureCompensation();
+        // Set rotation and gps data
+        if (mSceneMode == Util.SCENE_MODE_HDR && Util.needSamsungHDRFormat()) {
+            // Samsung actually specifies max range via exposure compensation
+            mParameters.setExposureCompensation(mParameters.getMaxExposureCompensation());
+        }
         mJpegRotation = Util.getJpegRotation(mCameraId, mOrientation);
         mParameters.setRotation(mJpegRotation);
         Location loc = mLocationManager.getCurrentLocation();
@@ -1439,7 +1464,8 @@ public class PhotoModule
                 mPostViewPictureCallback, new JpegPictureCallback(loc),
                 mCameraState, mFocusManager.getFocusState());
 
-        if (Util.enableZSL()) {
+        if (Util.enableZSL() && (mSceneMode != Util.SCENE_MODE_HDR
+                || !Util.needSamsungHDRFormat())) {
             mRestartPreview = false;
         }
 
@@ -1869,7 +1895,7 @@ public class PhotoModule
 
                                 // delete source images
                                 for (int i = 0; i < sHDRShotsPaths.size()-1; i++) {
-                                    Storage.deleteImage(mContentResolver, sHDRShotsPaths.get(i));
+                                    Storage.getStorage().deleteImage(mContentResolver, sHDRShotsPaths.get(i));
                                 }
 
                                 // reset exposure
@@ -1952,9 +1978,8 @@ public class PhotoModule
 
     @Override
     public void updateCameraAppView() {
-        // Setup Power shutter and smart capture
-        updateCustomSettings();
-
+        // Setup Power shutter
+        mActivity.initPowerShutter(mPreferences);
     }
 
     @Override
@@ -2012,7 +2037,9 @@ public class PhotoModule
         waitCameraStartUpThread();
 
         // Disable no-hands mode, and kill any pending voice listeners
-        mPhotoControl.resetNoHandsShutter(true);
+        if (mPhotoControl != null) {
+            mPhotoControl.resetNoHandsShutter(true);
+        }
 
         // When camera is started from secure lock screen for the first time
         // after screen on, the activity gets onCreate->onResume->onPause->onResume.
@@ -2031,14 +2058,14 @@ public class PhotoModule
         stopPreview();
         // Close the camera now because other activities may need to use it.
         closeCamera();
-        if (mSurfaceTexture != null) {
+        if (Util.mSurfaceTexture != null) {
             ((CameraScreenNail) mActivity.mCameraScreenNail).releaseSurfaceTexture();
-            mSurfaceTexture = null;
+            Util.mSurfaceTexture = null;
         }
         resetScreenOn();
 
-        // Load the Custom Settings
-        updateCustomSettings();
+        // Load the power shutter
+        mActivity.initPowerShutter(mPreferences);
 
         // Clear UI.
         collapseCameraControls();
@@ -2169,6 +2196,16 @@ public class PhotoModule
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         Log.v(TAG, "onConfigurationChanged");
+
+        // Wait for camera initialization
+        try {
+            if (mCameraStartUpThread != null) {
+                mCameraStartUpThread.join();
+            }
+        } catch (InterruptedException iex) {
+            // Ignore.
+        }
+
         setDisplayOrientation();
 
         ((ViewGroup) mRootView).removeAllViews();
@@ -2181,9 +2218,6 @@ public class PhotoModule
         initializeFocusManager();
         initializeMiscControls();
         loadCameraPreferences();
-
-        // Load External storage settings
-        mActivity.initStoragePrefs(mPreferences);
 
         // from initializeFirstTime()
         mShutterButton = mActivity.getShutterButton();
@@ -2370,25 +2404,6 @@ public class PhotoModule
         return false;
     }
 
-    @Override
-    public void onSensorChanged(SensorEvent event) {
-        if (mActivity.mShowCameraAppView) {
-            int currentProx = (int) event.values[0];
-            if (currentProx == 0) {
-                if (mFirstTimeInitialized) {
-                    onShutterButtonFocus(true);
-                }
-                if (canTakePicture()) {
-                    onShutterButtonClick();
-                }
-            }
-        }
-    }
-
-    @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy) {
-    }
-
     @TargetApi(ApiHelper.VERSION_CODES.ICE_CREAM_SANDWICH)
     private void closeCamera() {
         if (mCameraDevice != null) {
@@ -2402,7 +2417,6 @@ public class PhotoModule
             mCameraDevice = null;
             setCameraState(PREVIEW_STOPPED);
             mFocusManager.onCameraReleased();
-            stopSmartCapture();
             hideGpsOnScreenIndicator();
         }
     }
@@ -2456,42 +2470,9 @@ public class PhotoModule
         setCameraParameters(UPDATE_PARAM_ALL);
 
         if (ApiHelper.HAS_SURFACE_TEXTURE) {
-            CameraScreenNail screenNail = (CameraScreenNail) mActivity.mCameraScreenNail;
-            if (Util.enableAspectRatioFixes()) {
-                int oldWidth = screenNail.getTextureWidth();
-                int oldHeight = screenNail.getTextureHeight();
-                Size size = mParameters.getPreviewSize();
-                int previewWidth = size.width;
-                int previewHeight = size.height;
-                if (mCameraDisplayOrientation % 180 != 0) {
-                   previewWidth = size.height;
-                   previewHeight = size.width;
-                }
-                if ( ( mSurfaceTexture == null ) ||
-                      (previewWidth != oldWidth) ||
-                      (previewHeight != oldHeight) ) {
-                    screenNail.setSize(previewWidth, previewHeight);
-                    screenNail.enableAspectRatioClamping();
-                    mActivity.notifyScreenNailChanged();
-                    screenNail.acquireSurfaceTexture();
-                    mSurfaceTexture = screenNail.getSurfaceTexture();
-                }
-            } else {
-                if (mSurfaceTexture == null) {
-                    Size size = mParameters.getPreviewSize();
-                    if (mCameraDisplayOrientation % 180 == 0) {
-                        screenNail.setSize(size.width, size.height);
-                    } else {
-                        screenNail.setSize(size.height, size.width);
-                    }
-                    screenNail.enableAspectRatioClamping();
-                    mActivity.notifyScreenNailChanged();
-                    screenNail.acquireSurfaceTexture();
-                    mSurfaceTexture = screenNail.getSurfaceTexture();
-                }
-            }
             mCameraDevice.setDisplayOrientation(mCameraDisplayOrientation);
-            mCameraDevice.setPreviewTextureAsync((SurfaceTexture) mSurfaceTexture);
+            mCameraDevice.setPreviewTextureAsync(Util.newSurfaceLayer(
+                    mCameraDisplayOrientation, mParameters, mActivity));
         } else {
             mCameraDevice.setDisplayOrientation(mDisplayOrientation);
             mCameraDevice.setPreviewDisplayAsync(mCameraSurfaceHolder);
@@ -2509,7 +2490,6 @@ public class PhotoModule
         if (mSnapshotOnIdle && (mBurstShotsDone > 0 && !mHDRShotInProgress)) {
             mHandler.post(mDoSnapRunnable);
         }
-        if (mActivity.mSmartCapture) startSmartCapture();
     }
 
     private void stopPreview() {
@@ -2618,10 +2598,6 @@ public class PhotoModule
             // sizes, so set and read the parameters to get latest values
             mCameraDevice.setParameters(mParameters);
             mParameters = mCameraDevice.getParameters();
-            if (Util.enableAspectRatioFixes()) {
-                Log.v(TAG, "Preview Size changed. Restart Preview");
-                mRestartPreview = true;
-            }
         }
         Log.v(TAG, "Preview size is " + optimalSize.width + "x" + optimalSize.height);
 
@@ -2631,18 +2607,19 @@ public class PhotoModule
         String hdr = mPreferences.getString(CameraSettings.KEY_CAMERA_HDR,
                 mActivity.getString(R.string.pref_camera_hdr_default));
         if (mActivity.getString(R.string.setting_on_value).equals(hdr)) {
-            if (!Util.useSoftwareHDR())
+            if (Util.isCameraHdrSupported(mParameters) && !Util.useSoftwareHDR())
                 mSceneMode = Util.SCENE_MODE_HDR;
-            else
+            else {
+                mSceneMode = Parameters.SCENE_MODE_AUTO;
                 Util.setDoSoftwareHDRShot(true);
+            }
         } else {
-            if (!Util.useSoftwareHDR()) {
-                mSceneMode = mPreferences.getString(
-                    CameraSettings.KEY_SCENE_MODE,
-                    mActivity.getString(R.string.pref_camera_scenemode_default));
-            } else {
+            if (Util.useSoftwareHDR()) {
                 Util.setDoSoftwareHDRShot(false);
             }
+            mSceneMode = mPreferences.getString(
+                CameraSettings.KEY_SCENE_MODE,
+                mActivity.getString(R.string.pref_camera_scenemode_default));
         }
         if (Util.isSupported(mSceneMode, mParameters.getSupportedSceneModes())) {
             if (!mParameters.getSceneMode().equals(mSceneMode)) {
@@ -2693,6 +2670,12 @@ public class PhotoModule
         if (Util.isSupported(colorEffect, mParameters.getSupportedColorEffects())) {
             mParameters.setColorEffect(colorEffect);
         }
+
+        // Set shutter speed
+        String shutterSpeed = mPreferences.getString(
+                CameraSettings.KEY_SHUTTER_SPEED,
+                mActivity.getString(R.string.pref_shutter_speed_default));
+        mParameters.set("shutter-speed", shutterSpeed);
 
         // Set exposure compensation
         if (!mHDRShotInProgress) {
@@ -2796,12 +2779,10 @@ public class PhotoModule
             mUpdateSet = 0;
             return;
         } else if (isCameraIdle()) {
-            if (!Util.enableAspectRatioFixes()) {
-                if (mRestartPreview) {
-                    Log.d(TAG, "Restarting preview");
-                    startPreview();
-                    mRestartPreview = false;
-                }
+            if (mRestartPreview) {
+                Log.d(TAG, "Restarting preview");
+                startPreview();
+                mRestartPreview = false;
             }
             setCameraParameters(mUpdateSet);
             updateSceneModeUI();
@@ -2812,21 +2793,11 @@ public class PhotoModule
                         SET_CAMERA_PARAMETERS_WHEN_IDLE, 1000);
             }
         }
-        if (Util.enableAspectRatioFixes()) {
-            if (mAspectRatioChanged || mRestartPreview) {
-                Log.e(TAG, "Aspect ratio changed, restarting preview");
-                startPreview();
-                mAspectRatioChanged = false;
-                mRestartPreview = false;
-                mHandler.sendEmptyMessage(START_PREVIEW_DONE);
-            }
-        } else {
-            if (mAspectRatioChanged) {
-                Log.e(TAG, "Aspect ratio changed, restarting preview");
-                startPreview();
-                mAspectRatioChanged = false;
-                mHandler.sendEmptyMessage(START_PREVIEW_DONE);
-            }
+        if (mAspectRatioChanged) {
+            Log.e(TAG, "Aspect ratio changed, restarting preview");
+            startPreview();
+            mAspectRatioChanged = false;
+            mHandler.sendEmptyMessage(START_PREVIEW_DONE);
         }
     }
 
@@ -2879,15 +2850,15 @@ public class PhotoModule
                 mPreferences, mContentResolver);
         mLocationManager.recordLocation(recordLocation);
 
+        if (mActivity.setStoragePath(mPreferences)) {
+            mActivity.updateStorageSpaceAndHint();
+            mActivity.reuseCameraScreenNail(!mIsImageCaptureIntent);
+        }
+
         setCameraParametersWhenIdle(UPDATE_PARAM_PREFERENCE);
         setPreviewFrameLayoutAspectRatio();
         updateOnScreenIndicators();
-        updateCustomSettings();
-        mActivity.initStoragePrefs(mPreferences);
-
-        if (ActivityBase.mStorageToggled) {
-            mActivity.recreate();
-        }
+        mActivity.initPowerShutter(mPreferences);
     }
 
     @Override
@@ -2941,10 +2912,8 @@ public class PhotoModule
         mFocusManager.setParameters(mInitialParams);
         setupPreview();
         loadCameraPreferences();
-        if (Util.enableAspectRatioFixes()) {
-            setPreviewFrameLayoutAspectRatio();
-        }
         initializePhotoControl();
+        mResetExposure = mParameters.getExposureCompensation();
 
         // from initializeFirstTime
         initializeZoom();
@@ -3051,24 +3020,7 @@ public class PhotoModule
         if (mFocusManager != null) mFocusManager.setPreviewSize(width, height);
     }
 
-    void setPreviewFrameLayoutCameraOrientation(){
-       if (Util.enableAspectRatioFixes()) {
-           CameraInfo info = CameraHolder.instance().getCameraInfo()[mCameraId];
-
-           //if camera mount angle is 0 or 180, we want to resize preview
-           if (info.orientation % 180 == 0){
-               mPreviewFrameLayout.cameraOrientationPreviewResize(true);
-           } else{
-               mPreviewFrameLayout.cameraOrientationPreviewResize(false);
-           }
-        }
-    }
-
     void setPreviewFrameLayoutAspectRatio() {
-        if (Util.enableAspectRatioFixes()) {
-            setPreviewFrameLayoutCameraOrientation();
-        }
-
         // Set the preview frame aspect ratio according to the picture size.
         Size size = mParameters.getPictureSize();
         mPreviewFrameLayout.setAspectRatio((double) size.width / size.height);

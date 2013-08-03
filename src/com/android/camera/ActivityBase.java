@@ -20,17 +20,16 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Rect;
 import android.hardware.Camera.Parameters;
-import android.hardware.SensorManager;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Message;
-import android.preference.PreferenceGroup;
-import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.Window;
@@ -48,8 +47,6 @@ import com.android.gallery3d.app.PhotoPage;
 import com.android.gallery3d.common.ApiHelper;
 import com.android.gallery3d.ui.ScreenNail;
 import com.android.gallery3d.util.MediaSetUtils;
-
-import java.io.File; 
 
 /**
  * Superclass of camera activity.
@@ -86,13 +83,6 @@ public abstract class ActivityBase extends AbstractGalleryActivity
     // Keep track of powershutter state
     public static boolean mPowerShutter = false;
 
-    public static boolean mSmartCapture = false;
-
-    // Keep track of External Storage
-    public static boolean mStorageExternal;
-    public static boolean mNoExt = false;
-    public static boolean mStorageToggled = false;
-
     // multiple cameras support
     protected int mNumberOfCameras;
     protected int mCameraId;
@@ -117,6 +107,7 @@ public abstract class ActivityBase extends AbstractGalleryActivity
     protected boolean mSecureCamera;
     private static boolean sFirstStartAfterScreenOn = true;
 
+    private String mStoragePath;
     private long mStorageSpace = Storage.LOW_STORAGE_THRESHOLD;
     private static final int UPDATE_STORAGE_HINT = 0;
     private final Handler mHandler = new Handler() {
@@ -225,8 +216,18 @@ public abstract class ActivityBase extends AbstractGalleryActivity
         return false;
     }
 
+    protected boolean setStoragePath(SharedPreferences prefs) {
+        String storagePath = prefs.getString(CameraSettings.KEY_STORAGE,
+                Environment.getExternalStorageDirectory().toString());
+        if (storagePath.equals(mStoragePath)) {
+            return false;
+        }
+        mStoragePath = storagePath;
+        Storage.getStorage().setRoot(mStoragePath);
+        return true;
+    }
+
     protected void initPowerShutter(ComboPreferences prefs) {
-        prefs.setLocalId(getApplicationContext(), 0);
         String val = prefs.getString(CameraSettings.KEY_POWER_SHUTTER,
                 getResources().getString(R.string.pref_camera_power_shutter_default));
         mPowerShutter = val.equals(CameraSettings.VALUE_ON);
@@ -234,33 +235,6 @@ public abstract class ActivityBase extends AbstractGalleryActivity
             getWindow().addFlags(WindowManager.LayoutParams.PREVENT_POWER_KEY);
         } else {
             getWindow().clearFlags(WindowManager.LayoutParams.PREVENT_POWER_KEY);
-        }
-    }
-
-    protected void initSmartCapture(ComboPreferences prefs) {
-        prefs.setLocalId(getApplicationContext(), 0);
-        String val = prefs.getString(CameraSettings.KEY_SMART_CAPTURE,
-                getResources().getString(R.string.capital_off));
-        mSmartCapture = val.equals(CameraSettings.VALUE_ON);
-    }
-
-    protected SensorManager getSensorManager() {
-        return (SensorManager) getApplicationContext().getSystemService(Context.SENSOR_SERVICE);
-    }
-
-    // Initialize storage preferences
-    protected void initStoragePrefs(ComboPreferences prefs) {
-        prefs.setLocalId(getApplicationContext(), 0);
-        String val = prefs.getString(CameraSettings.KEY_STORAGE,
-                getResources().getString(R.string.pref_camera_storage_title_default));
-        mStorageToggled = ( mStorageExternal == val.equals(CameraSettings.VALUE_ON)) ? false : true;
-        mStorageExternal = val.equals(CameraSettings.VALUE_ON);
-        File extDCIM = new File(Storage.EXTMMC);
-        // Condition for External SD absence
-        if(extDCIM.exists()) mNoExt = false;
-        else {
-            mNoExt=true;
-            mStorageExternal = false;
         }
     }
 
@@ -360,7 +334,7 @@ public abstract class ActivityBase extends AbstractGalleryActivity
     }
 
     protected void updateStorageSpace() {
-        mStorageSpace = Storage.getAvailableSpace();
+        mStorageSpace = Storage.getStorage().getAvailableSpace();
     }
 
     protected long getStorageSpace() {
@@ -419,7 +393,7 @@ public abstract class ActivityBase extends AbstractGalleryActivity
             if (mSecureCamera) {
                 path = "/secure/all/" + sSecureAlbumId;
             } else {
-                path = "/local/all/" + Storage.generateBucketIdInt();
+                path = "/local/all/" + Storage.getStorage().generateBucketIdInt();
             }
         } else {
             path = "/local/all/0"; // Use 0 so gallery does not show anything.
@@ -453,7 +427,7 @@ public abstract class ActivityBase extends AbstractGalleryActivity
             if (mSecureCamera) {
                 path = "/secure/all/" + sSecureAlbumId;
             } else {
-                path = "/local/all/" + Storage.generateBucketIdInt();
+                path = "/local/all/" + Storage.getStorage().generateBucketIdInt();
             }
         } else {
             path = "/local/all/0"; // Use 0 so gallery does not show anything.
@@ -469,6 +443,8 @@ public abstract class ActivityBase extends AbstractGalleryActivity
         data.putParcelable(PhotoPage.KEY_APP_BRIDGE, mAppBridge);
         if (getStateManager().getStateCount() == 0) {
             getStateManager().startState(PhotoPage.class, data);
+        } else {
+            getStateManager().startStateNow(PhotoPage.class, data);
         }
         mCameraScreenNail = mAppBridge.getCameraScreenNail();
         return mCameraScreenNail;

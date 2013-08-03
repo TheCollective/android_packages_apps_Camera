@@ -65,6 +65,7 @@ public class PhotoController extends PieController
                     ListPreference camPref = mPreferenceGroup
                             .findPreference(CameraSettings.KEY_CAMERA_ID);
                     if (camPref != null) {
+                        Util.mSwitchCamera = true;
                         int index = camPref.findIndexOfValue(camPref.getValue());
                         CharSequence[] values = camPref.getEntryValues();
                         index = (index + 1) % values.length;
@@ -97,11 +98,10 @@ public class PhotoController extends PieController
         }
         addItem(CameraSettings.KEY_NOHANDS_MODE, (float)(1.5 * FLOAT_PI_DIVIDED_BY_TWO) + sweep, sweep);
         mOtherKeys = new String[] {
+                CameraSettings.KEY_STORAGE,
                 CameraSettings.KEY_SCENE_MODE,
                 CameraSettings.KEY_RECORD_LOCATION,
                 CameraSettings.KEY_POWER_SHUTTER,
-                CameraSettings.KEY_SMART_CAPTURE,
-                CameraSettings.KEY_STORAGE, 
                 CameraSettings.KEY_PICTURE_SIZE,
                 CameraSettings.KEY_FOCUS_MODE,
                 CameraSettings.KEY_FOCUS_TIME,
@@ -109,7 +109,8 @@ public class PhotoController extends PieController
                 CameraSettings.KEY_JPEG,
                 CameraSettings.KEY_COLOR_EFFECT,
                 CameraSettings.KEY_PERSISTENT_NOHANDS,
-                CameraSettings.KEY_BURST_MODE};
+                CameraSettings.KEY_BURST_MODE,
+                CameraSettings.KEY_SHUTTER_SPEED};
         PieItem item = makeItem(R.drawable.ic_settings_holo_light);
         item.setFixedSlice(FLOAT_PI_DIVIDED_BY_TWO * 3, sweep);
         item.setOnClickListener(new OnClickListener() {
@@ -231,8 +232,9 @@ public class PhotoController extends PieController
         ListPreference pref = mPreferenceGroup.findPreference(CameraSettings.KEY_NOHANDS_MODE);
 
         if (persist.getValue().equals(mActivity.getString(R.string.setting_on_value))) {
-            Util.enableSpeechRecognition((pref.getValue().equals(mActivity.getString(R.string.pref_camera_nohands_voice))
-                    && !force), null);
+            Util.enableSpeechRecognition( (pref.getValue().equals(mActivity.getString(R.string.pref_camera_nohands_voice)) && 
+                                           !force),
+                                          null);
             return;
         }
         pref.setValue(mActivity.getString(R.string.pref_camera_nohands_default));
