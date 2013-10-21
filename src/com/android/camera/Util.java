@@ -115,17 +115,11 @@ public class Util {
 
     public static boolean isCameraHdrSupported(Parameters params) {
         List<String> supported = params.getSupportedSceneModes();
-        boolean ret = (supported != null) && supported.contains(SCENE_MODE_HDR) && !sForceSoftwareHDR;
-        if (ret && sEnableSoftwareHDR) { sEnableSoftwareHDR = false; }
-        return ret;
+        return (supported != null) && supported.contains(SCENE_MODE_HDR);
     }
 
     public static boolean isVideoHdrSupported(Parameters params) {
         return TRUE.equals(params.get(VIDEO_HDR_SUPPORTED));
-    }
-
-    public static boolean isShutterSpeedSupported(Parameters params) {
-         return sShutterSpeed;
     }
 
     @TargetApi(ApiHelper.VERSION_CODES.ICE_CREAM_SANDWICH)
@@ -170,23 +164,13 @@ public class Util {
 
     // Workaround for QC cameras with broken face detection on front camera
     private static boolean sNoFaceDetectOnFrontCamera;
-
-    // Software HDR based on manual shots with multiple exposure
-    private static boolean sEnableSoftwareHDR;
-    private static boolean sDoSoftwareHDRShot;
-    private static int sSoftwareHDRExposureSettleTime;
-    private static boolean sForceSoftwareHDR;
-
-    // Use samsung HDR format
-    private static boolean sSamsungHDRFormat;
+    private static boolean sNoFaceDetectOnBackCamera;
 
     // Do not change the focus mode when TTF is used
     private static boolean sNoFocusModeChangeForTouch;
 
     // Send magic command to hardware for Samsung ZSL
     private static boolean sSendMagicSamsungZSLCommand;
-
-    private static boolean sShutterSpeed;
 
     private static SpeechRecognizer mSpeechRecognizer;
     private static Intent mSpeechRecognizerIntent;
@@ -218,23 +202,13 @@ public class Util {
         sEnableZSL = context.getResources().getBoolean(R.bool.enableZSL);
         sNoFaceDetectOnFrontCamera = context.getResources().getBoolean(
                 R.bool.noFaceDetectOnFrontCamera);
-
-        sEnableSoftwareHDR = !context.getResources().getBoolean(R.bool.disableSoftwareHDR);
-        sForceSoftwareHDR = context.getResources().getBoolean(R.bool.forceSoftwareHDR);
-        sSoftwareHDRExposureSettleTime = context.getResources().getInteger(
-                R.integer.softwareHDRExposureSettleTime);
-        sDoSoftwareHDRShot = false;
-
-        sSamsungHDRFormat = context.getResources().getBoolean(R.bool.needsSamsungHDRFormat);
-
+        sNoFaceDetectOnBackCamera = context.getResources().getBoolean(
+                R.bool.noFaceDetectOnBackCamera);
         sNoFocusModeChangeForTouch = context.getResources().getBoolean(
                 R.bool.useContinuosFocusForTouch);
 
         sSendMagicSamsungZSLCommand = context.getResources().getBoolean(
                 R.bool.sendMagicSamsungZSLCommand);
-
-        sShutterSpeed = context.getResources().getBoolean(
-                R.bool.enableShutterSpeed);
 
         /* Voice Shutter */
         mSpeechRecognizer = SpeechRecognizer.createSpeechRecognizer(context);
@@ -279,28 +253,12 @@ public class Util {
         return sEnableZSL;
     }
 
-    public static boolean useSoftwareHDR() {
-        return sEnableSoftwareHDR;
-    }
-
-    public static boolean needSamsungHDRFormat() {
-        return sSamsungHDRFormat;
-    }
-
-    public static void setDoSoftwareHDRShot(boolean enable) {
-        sDoSoftwareHDRShot = enable;
-    }
-
-    public static boolean getDoSoftwareHDRShot() {
-        return sDoSoftwareHDRShot;
-    }
-
-    public static int getSoftwareHDRExposureSettleTime() {
-        return sSoftwareHDRExposureSettleTime;
-    }
-
     public static boolean noFaceDetectOnFrontCamera() {
         return sNoFaceDetectOnFrontCamera;
+    }
+
+    public static boolean noFaceDetectOnBackCamera() {
+        return sNoFaceDetectOnBackCamera;
     }
 
     public static boolean noFocusModeChangeForTouch() {
@@ -322,7 +280,7 @@ public class Util {
         if (mPhotoModule == null) {
             /* if no photomodule ever got passed, it wasn't activated. Ignore
                invocation */
-            return; 
+            return;
         }
         mPhotoModule.updateNoHandsIndicator();
         /* Always make sure there are no pending listeners */
@@ -469,46 +427,6 @@ public class Util {
             Log.e(TAG, "Got oom exception ", ex);
             return null;
         }
-    }
-
-    public static Bitmap decodeYUV422P(byte[] yuv422p, int width, int height)
-                        throws NullPointerException, IllegalArgumentException {
-        final int frameSize = width * height;
-        int[] rgb = new int[frameSize];
-        for (int j = 0, yp = 0; j < height; j++) {
-            int up = frameSize + (j * (width/2)), u = 0, v = 0;
-            int vp = ((int)(frameSize*1.5) + (j*(width/2)));
-            for (int i = 0; i < width; i++, yp++) {
-                int y = (0xff & ((int) yuv422p[yp])) - 16;
-                if (y < 0)
-                    y = 0;
-                if ((i & 1) == 0) {
-                    u = (0xff & yuv422p[up++]) - 128;
-                    v = (0xff & yuv422p[vp++]) - 128;
-                }
-
-                int y1192 = 1192 * y;
-                int r = (y1192 + 1634 * v);
-                int g = (y1192 - 833 * v - 400 * u);
-                int b = (y1192 + 2066 * u);
-
-                if (r < 0)
-                    r = 0;
-                else if (r > 262143)
-                    r = 262143;
-                if (g < 0)
-                    g = 0;
-                else if (g > 262143)
-                    g = 262143;
-                if (b < 0)
-                    b = 0;
-                else if (b > 262143)
-                    b = 262143;
-
-                rgb[yp] = 0xff000000 | ((r << 6) & 0xff0000) | ((g >> 2) & 0xff00) | ((b >> 10) & 0xff);
-            }
-        }
-        return Bitmap.createBitmap(rgb, width, height, Bitmap.Config.ARGB_8888);
     }
 
     public static void closeSilently(Closeable c) {

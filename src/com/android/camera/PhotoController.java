@@ -26,9 +26,11 @@ import com.android.camera.ui.MoreSettingPopup;
 import com.android.camera.ui.PieItem;
 import com.android.camera.ui.PieItem.OnClickListener;
 import com.android.camera.ui.PieRenderer;
+import com.android.camera.ui.TimerSettingPopup;
 
 public class PhotoController extends PieController
         implements MoreSettingPopup.Listener,
+        TimerSettingPopup.Listener,
         ListPrefSettingPopup.Listener {
     private static String TAG = "CAM_photocontrol";
     private static float FLOAT_PI_DIVIDED_BY_TWO = (float) Math.PI / 2;
@@ -98,10 +100,12 @@ public class PhotoController extends PieController
         }
         addItem(CameraSettings.KEY_NOHANDS_MODE, (float)(1.5 * FLOAT_PI_DIVIDED_BY_TWO) + sweep, sweep);
         mOtherKeys = new String[] {
-                CameraSettings.KEY_STORAGE,
                 CameraSettings.KEY_SCENE_MODE,
                 CameraSettings.KEY_RECORD_LOCATION,
                 CameraSettings.KEY_POWER_SHUTTER,
+                CameraSettings.KEY_SMART_CAPTURE,
+                CameraSettings.KEY_TRUE_VIEW,
+                CameraSettings.KEY_STORAGE,
                 CameraSettings.KEY_PICTURE_SIZE,
                 CameraSettings.KEY_FOCUS_MODE,
                 CameraSettings.KEY_FOCUS_TIME,
@@ -110,7 +114,9 @@ public class PhotoController extends PieController
                 CameraSettings.KEY_COLOR_EFFECT,
                 CameraSettings.KEY_PERSISTENT_NOHANDS,
                 CameraSettings.KEY_BURST_MODE,
-                CameraSettings.KEY_SHUTTER_SPEED};
+                CameraSettings.KEY_TIMER,
+                CameraSettings.KEY_TIMER_SOUND_EFFECTS,
+                };
         PieItem item = makeItem(R.drawable.ic_settings_holo_light);
         item.setFixedSlice(FLOAT_PI_DIVIDED_BY_TWO * 3, sweep);
         item.setOnClickListener(new OnClickListener() {
@@ -218,12 +224,21 @@ public class PhotoController extends PieController
 
         LayoutInflater inflater = (LayoutInflater) mActivity.getSystemService(
                 Context.LAYOUT_INFLATER_SERVICE);
-        ListPrefSettingPopup basic = (ListPrefSettingPopup) inflater.inflate(
-                R.layout.list_pref_setting_popup, null, false);
-        basic.initialize(pref);
-        basic.setSettingChangedListener(this);
-        mModule.dismissPopup(true);
-        mSecondPopup = basic;
+        if (CameraSettings.KEY_TIMER.equals(pref.getKey())) {
+            TimerSettingPopup timerPopup = (TimerSettingPopup) inflater.inflate(
+                    R.layout.timer_setting_popup, null, false);
+            timerPopup.initialize(pref);
+            timerPopup.setSettingChangedListener(this);
+            mModule.dismissPopup(true);
+            mSecondPopup = timerPopup;
+        } else {
+            ListPrefSettingPopup basic = (ListPrefSettingPopup) inflater.inflate(
+                    R.layout.list_pref_setting_popup, null, false);
+            basic.initialize(pref);
+            basic.setSettingChangedListener(this);
+            mModule.dismissPopup(true);
+            mSecondPopup = basic;
+        }
         mModule.showPopup(mSecondPopup);
     }
 
@@ -232,9 +247,8 @@ public class PhotoController extends PieController
         ListPreference pref = mPreferenceGroup.findPreference(CameraSettings.KEY_NOHANDS_MODE);
 
         if (persist.getValue().equals(mActivity.getString(R.string.setting_on_value))) {
-            Util.enableSpeechRecognition( (pref.getValue().equals(mActivity.getString(R.string.pref_camera_nohands_voice)) && 
-                                           !force),
-                                          null);
+            Util.enableSpeechRecognition((pref.getValue().equals(mActivity.getString(R.string.pref_camera_nohands_voice))
+                    && !force), null);
             return;
         }
         pref.setValue(mActivity.getString(R.string.pref_camera_nohands_default));

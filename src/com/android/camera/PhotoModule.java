@@ -19,7 +19,6 @@ package com.android.camera;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.ProgressDialog;
 import android.content.ContentProviderClient;
 import android.content.ContentResolver;
 import android.content.DialogInterface;
@@ -27,8 +26,6 @@ import android.content.Intent;
 import android.content.SharedPreferences.Editor;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera.CameraInfo;
 import android.hardware.Camera.Face;
@@ -36,6 +33,10 @@ import android.hardware.Camera.FaceDetectionListener;
 import android.hardware.Camera.Parameters;
 import android.hardware.Camera.PictureCallback;
 import android.hardware.Camera.Size;
+import android.hardware.Sensor;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorEvent;
+import android.hardware.SensorManager;
 import android.location.Location;
 import android.media.CameraProfile;
 import android.net.Uri;
@@ -66,6 +67,7 @@ import android.widget.Toast;
 
 import com.android.camera.CameraManager.CameraProxy;
 import com.android.camera.ui.AbstractSettingPopup;
+import com.android.camera.ui.CountDownView;
 import com.android.camera.ui.FaceView;
 import com.android.camera.ui.PieRenderer;
 import com.android.camera.ui.PopupManager;
@@ -75,10 +77,10 @@ import com.android.camera.ui.Rotatable;
 import com.android.camera.ui.RotateTextToast;
 import com.android.camera.ui.TwoStateImageView;
 import com.android.camera.ui.ZoomRenderer;
-import com.android.gallery3d.app.CropImage;
 import com.android.gallery3d.common.ApiHelper;
+import com.android.gallery3d.filtershow.CropExtras;
+import com.android.gallery3d.filtershow.FilterShowActivity;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -97,7 +99,8 @@ public class PhotoModule
     PreviewFrameLayout.OnSizeChangedListener,
     ShutterButton.OnShutterButtonListener,
     SurfaceHolder.Callback,
-    PieRenderer.PieListener {
+    PieRenderer.PieListener,
+    CountDownView.OnCountDownFinishedListener {
 
     private static final String TAG = "CAM_PhotoModule";
 
@@ -119,7 +122,8 @@ public class PhotoModule
     private static final int START_PREVIEW_DONE = 10;
     private static final int OPEN_CAMERA_FAIL = 11;
     private static final int CAMERA_DISABLED = 12;
-    private static final int CAMERA_TIMER = 13;
+    private static final int UPDATE_SECURE_ALBUM_ITEM = 13;
+    private static final int CAMERA_TIMER = 14;
 
     // The subset of parameters we need to update in setCameraParameters().
     private static final int UPDATE_PARAM_INITIALIZE = 1;
@@ -166,6 +170,7 @@ public class PhotoModule
     private boolean mAeLockSupported;
     private boolean mAwbLockSupported;
     private boolean mContinousFocusSupported;
+    private boolean mHwFocusCameraKey;
 
     // The degrees of the device rotated clockwise from its natural orientation.
     private int mOrientation = OrientationEventListener.ORIENTATION_UNKNOWN;
@@ -178,6 +183,9 @@ public class PhotoModule
     private boolean mFaceDetectionStarted = false;
 
     private PreviewFrameLayout mPreviewFrameLayout;
+
+    private Object mSurfaceTexture;
+    private CountDownView mCountDownView;
 
     // for API level 10
     private PreviewSurfaceView mPreviewSurfaceView;
@@ -212,10 +220,10 @@ public class PhotoModule
 
     // We use a thread in ImageSaver to do the work of saving images. This
     // reduces the shot-to-shot time.
-    private ImageSaver mImageSaver;
+    private MediaSaver mMediaSaver;
     // Similarly, we use a thread to generate the name of the picture and insert
     // it into MediaStore while picture taking is still in progress.
-    private ImageNamer mImageNamer;
+    private NamedImages mNamedImages;
 
     private Runnable mDoSnapRunnable = new Runnable() {
         @Override
@@ -258,6 +266,9 @@ public class PhotoModule
     private static final int SWITCHING_CAMERA = 4;
     private int mCameraState = PREVIEW_STOPPED;
     private boolean mSnapshotOnIdle = false;
+
+    private SensorManager mSensorManager;
+    private boolean mSensorIsRegistered = false;
 
     private ContentResolver mContentResolver;
 
@@ -311,14 +322,6 @@ public class PhotoModule
     private int mBurstShotsDone = 0;
     private boolean mBurstShotInProgress = false;
 
-    // Software HDR mode
-    private boolean mHDRShotInProgress = false;
-    private boolean mHDRExposureSet = false;
-    private boolean mHDRRendering = false;
-    private ProgressDialog mHdrProgressDialog = null;
-    private static ArrayList<Uri> sHDRShotsPaths = new ArrayList<Uri>();
-    private int mResetExposure;
-
     // Camera timer.
     private boolean mTimerMode = false;
 
@@ -330,12 +333,28 @@ public class PhotoModule
 
     private PreviewGestures mGestures;
 
+    private MediaSaver.OnMediaSavedListener mOnMediaSavedListener = new MediaSaver.OnMediaSavedListener() {
+        @Override
+
+        public void onMediaSaved(Uri uri) {
+            if (uri != null) {
+                mHandler.obtainMessage(UPDATE_SECURE_ALBUM_ITEM, uri).sendToTarget();
+                Util.broadcastNewPicture(mActivity, uri);
+            }
+        }
+    };
+
     // The purpose is not to block the main thread in onCreate and onResume.
     private class CameraStartUpThread extends Thread {
         private volatile boolean mCancelled;
 
         public void cancel() {
             mCancelled = true;
+            interrupt();
+        }
+
+        public boolean isCanceled() {
+            return mCancelled;
         }
 
         @Override
@@ -465,6 +484,10 @@ public class PhotoModule
                     break;
                 }
 
+                case UPDATE_SECURE_ALBUM_ITEM: {
+                    mActivity.addSecureAlbumItemIfNeeded(false, (Uri) msg.obj);
+                    break;
+                }
             }
         }
     }
@@ -486,9 +509,7 @@ public class PhotoModule
 
         mActivity.getLayoutInflater().inflate(R.layout.photo_module, (ViewGroup) mRootView);
 
-        mPreferences.setLocalId(mActivity, mCameraId);
-        CameraSettings.upgradeLocalPreferences(mPreferences.getLocal());
-        mActivity.setStoragePath(mPreferences);
+        updateCustomSettings(false);
 
         // Surface texture is from camera screen nail and startPreview needs it.
         // This must be done before startPreview.
@@ -499,6 +520,8 @@ public class PhotoModule
             mActivity.createCameraScreenNail(!mIsImageCaptureIntent);
         }
 
+        mPreferences.setLocalId(mActivity, mCameraId);
+        CameraSettings.upgradeLocalPreferences(mPreferences.getLocal());
         // we need to reset exposure for the preview
         resetExposureCompensation();
         // Starting the preview needs preferences, camera screen nail, and
@@ -510,6 +533,8 @@ public class PhotoModule
         initializeMiscControls();
         mLocationManager = new LocationManager(mActivity, this);
         initOnScreenIndicator();
+        mCountDownView = (CountDownView) (mRootView.findViewById(R.id.count_down_to_capture));
+        mCountDownView.setCountDownFinishedListener(this);
     }
 
     // Prompt the user to pick to record location for the very first run of
@@ -552,7 +577,7 @@ public class PhotoModule
 
     private void setLocationPreference(String value) {
         mPreferences.edit()
-            .putString(RecordLocationPreference.KEY, value)
+            .putString(CameraSettings.KEY_RECORD_LOCATION, value)
             .apply();
         // TODO: Fix this to use the actual onSharedPreferencesChanged listener
         // instead of invoking manually
@@ -664,13 +689,14 @@ public class PhotoModule
         mShutterButton.setOnShutterButtonListener(this);
         mShutterButton.setVisibility(View.VISIBLE);
 
-        mImageSaver = new ImageSaver();
-        mImageNamer = new ImageNamer();
+        mMediaSaver = new MediaSaver(mContentResolver);
+        mNamedImages = new NamedImages();
 
         mFirstTimeInitialized = true;
         addIdleHandler();
 
         mActivity.updateStorageSpaceAndHint();
+
     }
 
     private void showTapToFocusToastIfNeeded() {
@@ -687,7 +713,7 @@ public class PhotoModule
         queue.addIdleHandler(new MessageQueue.IdleHandler() {
             @Override
             public boolean queueIdle() {
-                Storage.getStorage().ensureOSXCompatible();
+                Storage.ensureOSXCompatible();
                 return false;
             }
         });
@@ -702,8 +728,8 @@ public class PhotoModule
                 mPreferences, mContentResolver);
         mLocationManager.recordLocation(recordLocation);
 
-        mImageSaver = new ImageSaver();
-        mImageNamer = new ImageNamer();
+        mMediaSaver = new MediaSaver(mContentResolver);
+        mNamedImages = new NamedImages();
         initializeZoom();
         keepMediaProviderInstance();
         hidePostCaptureAlert();
@@ -713,7 +739,7 @@ public class PhotoModule
         }
     }
 
-    private void processZoomValueChanged(int index){
+    private void processZoomValueChanged(int index) {
         if (index >= 0 && index <= mZoomMax) {
             processZoomValueChanged(index,true);
             mZoomSetByKey = true;
@@ -722,7 +748,7 @@ public class PhotoModule
 
     private void processZoomValueChanged(int index,boolean fromKey) {
 
-        if(fromKey || (!fromKey && !mZoomSetByKey)){
+        if (fromKey || (!fromKey && !mZoomSetByKey)) {
             // Not useful to change zoom value when the activity is paused.
             if (mPaused) return;
             mZoomValue = index;
@@ -734,7 +760,7 @@ public class PhotoModule
                 Parameters p = mCameraDevice.getParameters();
                 mZoomRenderer.setZoomValue(mZoomRatios.get(p.getZoom()));
             }
-        }else{
+        } else {
             mZoomSetByKey = false;
         }
     }
@@ -783,6 +809,10 @@ public class PhotoModule
         // Workaround for a buggy camera library
         if (Util.noFaceDetectOnFrontCamera()
                 && (CameraHolder.instance().getCameraInfo()[mCameraId].facing == CameraInfo.CAMERA_FACING_FRONT)) {
+            return;
+        }
+        if (Util.noFaceDetectOnBackCamera()
+                && (CameraHolder.instance().getCameraInfo()[mCameraId].facing == CameraInfo.CAMERA_FACING_BACK)) {
             return;
         }
 
@@ -910,8 +940,6 @@ public class PhotoModule
                 mFlashIndicator.setImageResource(R.drawable.ic_indicator_flash_auto);
             } else if (Parameters.FLASH_MODE_ON.equals(value)) {
                 mFlashIndicator.setImageResource(R.drawable.ic_indicator_flash_on);
-            } else if (Parameters.FLASH_MODE_RED_EYE.equals(value)) {
-                mFlashIndicator.setImageResource(R.drawable.ic_indicator_flash_redeye);
             } else {
                 mFlashIndicator.setImageResource(R.drawable.ic_indicator_flash_off);
             }
@@ -934,7 +962,7 @@ public class PhotoModule
         if (mHdrIndicator == null) {
             return;
         }
-        if ((value != null) && (Parameters.SCENE_MODE_HDR.equals(value) || Util.getDoSoftwareHDRShot())) {
+        if ((value != null) && Parameters.SCENE_MODE_HDR.equals(value)) {
             mHdrIndicator.setImageResource(R.drawable.ic_indicator_hdr_on);
         } else {
             mHdrIndicator.setImageResource(R.drawable.ic_indicator_hdr_off);
@@ -972,11 +1000,43 @@ public class PhotoModule
     }
 
     private void updateOnScreenIndicators() {
+        if (mParameters == null) return;
         updateSceneOnScreenIndicator(mParameters.getSceneMode());
         updateExposureOnScreenIndicator(CameraSettings.readExposure(mPreferences));
         updateFlashOnScreenIndicator(mParameters.getFlashMode());
         updateHdrOnScreenIndicator(mParameters.getSceneMode());
         updateNoHandsIndicator();
+    }
+
+    private void updateCustomSettings(boolean forceStopSmartCapture) {
+        mActivity.initPowerShutter(mPreferences);
+        mActivity.initStoragePrefs(mPreferences);
+        mActivity.initSmartCapture(mPreferences);
+        mActivity.initTrueView(mPreferences);
+        if (mActivity.mSmartCapture && !forceStopSmartCapture) {
+            startSmartCapture();
+        } else {
+            stopSmartCapture();
+        }
+    }
+
+    private void startSmartCapture() {
+        if (!mSensorIsRegistered) {
+            mSensorIsRegistered = true;
+            mSensorManager = mActivity.getSensorManager();
+            mSensorManager.registerListener(this,
+                    mSensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY),
+                    SensorManager.SENSOR_DELAY_UI);
+        }
+    }
+
+    private void stopSmartCapture() {
+        if (mSensorManager != null && mSensorIsRegistered) {
+            mSensorIsRegistered = false;
+            mSensorManager.unregisterListener(this,
+                    mSensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY));
+            mSensorManager = null;
+        }
     }
 
     private final class ShutterCallback
@@ -1052,16 +1112,12 @@ public class PhotoModule
             // i.e. If monkey/a user swipes to the gallery during picture taking,
             // don't show animation
             if (ApiHelper.HAS_SURFACE_TEXTURE && !mIsImageCaptureIntent
-                    && mActivity.mShowCameraAppView
-                    && !mBurstShotInProgress
-                    && !(mHDRShotInProgress && mBurstShotsDone < 3)) {
+                    && mActivity.mShowCameraAppView) {
                 // Finish capture animation
                 ((CameraScreenNail) mActivity.mCameraScreenNail).animateSlide();
             }
             mFocusManager.updateFocusUI(); // Ensure focus indicator is hidden.
-            if (!mIsImageCaptureIntent && (!Util.enableZSL()
-                    || (mSceneMode == Util.SCENE_MODE_HDR
-                    && Util.needSamsungHDRFormat()))) {
+            if (!mIsImageCaptureIntent && !Util.enableZSL()) {
                 if (ApiHelper.CAN_START_PREVIEW_IN_JPEG_CALLBACK) {
                     setupPreview();
                 } else {
@@ -1070,18 +1126,9 @@ public class PhotoModule
                     // time before starting the preview.
                     mHandler.sendEmptyMessageDelayed(SETUP_PREVIEW, 300);
                 }
-            } else if (Util.enableZSL() && !(mSceneMode == Util.SCENE_MODE_HDR
-                        && Util.needSamsungHDRFormat())) {
-                // In ZSL mode, the preview is not stopped, due to which the
-                // review mode (ImageCapture) doesn't show the captured frame.
-                // Hence stop the preview if ZSL mode is active so that the
-                // preview can be restarted using the onReviewRetakeClicked().
-                if (mIsImageCaptureIntent) {
-                    stopPreview();
-                } else {
-                    mFocusManager.resetTouchFocus();
-                    setCameraState(IDLE);
-                }
+            } else {
+                mFocusManager.resetTouchFocus();
+                setCameraState(IDLE);
             }
 
             if (!mIsImageCaptureIntent) {
@@ -1089,20 +1136,22 @@ public class PhotoModule
                 Size s = mParameters.getPictureSize();
                 int orientation = Exif.getOrientation(jpegData);
                 int width, height;
-                if ((mJpegRotation + orientation) % 180 == 0
-                        || (mSceneMode == Util.SCENE_MODE_HDR
-                        && Util.needSamsungHDRFormat())) {
+                if ((mJpegRotation + orientation) % 180 == 0) {
                     width = s.width;
                     height = s.height;
                 } else {
                     width = s.height;
                     height = s.width;
                 }
-                Uri uri = mImageNamer.getUri();
-                mActivity.addSecureAlbumItemIfNeeded(false, uri);
-                String title = mImageNamer.getTitle();
-                mImageSaver.addImage(jpegData, uri, title, mLocation,
-                        width, height, orientation);
+                String title = mNamedImages.getTitle();
+                long date = mNamedImages.getDate();
+                if (title == null) {
+                    Log.e(TAG, "Unbalanced name/data pair");
+                } else {
+                    if (date == -1) date = mCaptureStartTime;
+                    mMediaSaver.addImage(jpegData, title, date, mLocation, width, height,
+                            orientation, mOnMediaSavedListener);
+                }
             } else {
                 mJpegImageData = jpegData;
                 if (!mQuickCapture) {
@@ -1127,9 +1176,6 @@ public class PhotoModule
             if (mSnapshotOnIdle && mBurstShotsDone > 0) {
                 mHandler.post(mDoSnapRunnable);
             }
-            // Reset exposure
-            mParameters.setExposureCompensation(mResetExposure);
-            mCameraDevice.setParameters(mParameters);
         }
     }
 
@@ -1157,247 +1203,42 @@ public class PhotoModule
         }
     }
 
-    // Each SaveRequest remembers the data needed to save an image.
-    private static class SaveRequest {
-        byte[] data;
-        Uri uri;
-        String title;
-        Location loc;
-        int width, height;
-        int orientation;
-    }
-
-    // We use a queue to store the SaveRequests that have not been completed
-    // yet. The main thread puts the request into the queue. The saver thread
-    // gets it from the queue, does the work, and removes it from the queue.
-    //
-    // The main thread needs to wait for the saver thread to finish all the work
-    // in the queue, when the activity's onPause() is called, we need to finish
-    // all the work, so other programs (like Gallery) can see all the images.
-    //
-    // If the queue becomes too long, adding a new request will block the main
-    // thread until the queue length drops below the threshold (QUEUE_LIMIT).
-    // If we don't do this, we may face several problems: (1) We may OOM
-    // because we are holding all the jpeg data in memory. (2) We may ANR
-    // when we need to wait for saver thread finishing all the work (in
-    // onPause() or gotoGallery()) because the time to finishing a long queue
-    // of work may be too long.
-    private class ImageSaver extends Thread {
-        private static final int QUEUE_LIMIT = 3;
-
-        private ArrayList<SaveRequest> mQueue;
+    private static class NamedImages {
+        private ArrayList<NamedEntity> mQueue;
         private boolean mStop;
+        private NamedEntity mNamedEntity;
 
-        // Runs in main thread
-        public ImageSaver() {
-            mQueue = new ArrayList<SaveRequest>();
-            start();
+        public NamedImages() {
+            mQueue = new ArrayList<NamedEntity>();
         }
 
-        // Runs in main thread
-        public void addImage(final byte[] data, Uri uri, String title,
-                Location loc, int width, int height, int orientation) {
-            SaveRequest r = new SaveRequest();
-            r.data = data;
-            r.uri = uri;
-            r.title = title;
-            r.loc = (loc == null) ? null : new Location(loc);  // make a copy
-            r.width = width;
-            r.height = height;
-            r.orientation = orientation;
-            synchronized (this) {
-                while (mQueue.size() >= QUEUE_LIMIT) {
-                    try {
-                        wait();
-                    } catch (InterruptedException ex) {
-                        // ignore.
-                    }
-                }
-                mQueue.add(r);
-                notifyAll();  // Tell saver thread there is new work to do.
+        public void nameNewImage(ContentResolver resolver, long date) {
+            NamedEntity r = new NamedEntity();
+            r.title = Util.createJpegName(date);
+            r.date = date;
+            mQueue.add(r);
+        }
+
+        public String getTitle() {
+            if (mQueue.isEmpty()) {
+                mNamedEntity = null;
+                return null;
             }
+            mNamedEntity = mQueue.get(0);
+            mQueue.remove(0);
+
+            return mNamedEntity.title;
         }
 
-        // Runs in saver thread
-        @Override
-        public void run() {
-            while (true) {
-                SaveRequest r;
-                synchronized (this) {
-                    if (mQueue.isEmpty()) {
-                        notifyAll();  // notify main thread in waitDone
-
-                        // Note that we can only stop after we saved all images
-                        // in the queue.
-                        if (mStop) break;
-
-                        try {
-                            wait();
-                        } catch (InterruptedException ex) {
-                            // ignore.
-                        }
-                        continue;
-                    }
-                    r = mQueue.get(0);
-                }
-
-                if (mSceneMode == Util.SCENE_MODE_HDR && Util.needSamsungHDRFormat()) {
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    Bitmap bm = Util.decodeYUV422P(r.data, r.width, r.height);
-                    if (mJpegRotation != 0) {
-                        Matrix matrix = new Matrix();
-                        matrix.postRotate(mJpegRotation);
-                        bm = Bitmap.createBitmap(bm, 0, 0, r.width, r.height, matrix, true);
-                    }
-                    if (mJpegRotation % 180 != 0) {
-                        int x=r.height;
-                        int y=r.width;
-                        r.width = x;
-                        r.height = y;
-                    }
-                    bm.compress(Bitmap.CompressFormat.JPEG, Integer.parseInt(mPreferences.getString(
-                            CameraSettings.KEY_JPEG, mActivity.getString(
-                            R.string.pref_camera_jpeg_default))), baos);
-                    r.data = baos.toByteArray();
-                }
-                storeImage(r.data, r.uri, r.title, r.loc, r.width, r.height,
-                        r.orientation);
-                synchronized (this) {
-                    mQueue.remove(0);
-                    notifyAll();  // the main thread may wait in addImage
-                }
-            }
+        // Must be called after getTitle().
+        public long getDate() {
+            if (mNamedEntity == null) return -1;
+            return mNamedEntity.date;
         }
 
-        // Runs in main thread
-        public void waitDone() {
-            synchronized (this) {
-                while (!mQueue.isEmpty()) {
-                    try {
-                        wait();
-                    } catch (InterruptedException ex) {
-                        // ignore.
-                    }
-                }
-            }
-        }
-
-        // Runs in main thread
-        public void finish() {
-            waitDone();
-            synchronized (this) {
-                mStop = true;
-                notifyAll();
-            }
-            try {
-                join();
-            } catch (InterruptedException ex) {
-                // ignore.
-            }
-        }
-
-        // Runs in saver thread
-        private void storeImage(final byte[] data, Uri uri, String title,
-                Location loc, int width, int height, int orientation) {
-            boolean ok = Storage.getStorage().updateImage(mContentResolver, uri, title, loc,
-                    orientation, data, width, height);
-            if (ok) {
-                Util.broadcastNewPicture(mActivity, uri);
-            }
-        }
-    }
-
-    private static class ImageNamer extends Thread {
-        private boolean mRequestPending;
-        private ContentResolver mResolver;
-        private long mDateTaken;
-        private int mWidth, mHeight;
-        private boolean mStop;
-        private Uri mUri;
-        private String mTitle;
-
-        // Runs in main thread
-        public ImageNamer() {
-            start();
-        }
-
-        // Runs in main thread
-        public synchronized void prepareUri(ContentResolver resolver,
-                long dateTaken, int width, int height, int rotation) {
-            if (rotation % 180 != 0) {
-                int tmp = width;
-                width = height;
-                height = tmp;
-            }
-            mRequestPending = true;
-            mResolver = resolver;
-            mDateTaken = dateTaken;
-            mWidth = width;
-            mHeight = height;
-            notifyAll();
-        }
-
-        // Runs in main thread
-        public synchronized Uri getUri() {
-            // wait until the request is done.
-            while (mRequestPending) {
-                try {
-                    wait();
-                } catch (InterruptedException ex) {
-                    // ignore.
-                }
-            }
-
-            // return the uri generated
-            Uri uri = mUri;
-            mUri = null;
-            return uri;
-        }
-
-        // Runs in main thread, should be called after getUri().
-        public synchronized String getTitle() {
-            return mTitle;
-        }
-
-        // Runs in namer thread
-        @Override
-        public synchronized void run() {
-            while (true) {
-                if (mStop) break;
-                if (!mRequestPending) {
-                    try {
-                        wait();
-                    } catch (InterruptedException ex) {
-                        // ignore.
-                    }
-                    continue;
-                }
-                cleanOldUri();
-                generateUri();
-                mRequestPending = false;
-                notifyAll();
-            }
-            cleanOldUri();
-        }
-
-        // Runs in main thread
-        public synchronized void finish() {
-            mStop = true;
-            notifyAll();
-        }
-
-        // Runs in namer thread
-        private void generateUri() {
-            mTitle = Util.createJpegName(mDateTaken);
-            mUri = Storage.getStorage().newImage(mResolver, mTitle, mDateTaken, mWidth, mHeight);
-            sHDRShotsPaths.add(mUri);
-        }
-
-        // Runs in namer thread
-        private void cleanOldUri() {
-            if (mUri == null) return;
-            Storage.getStorage().deleteImage(mResolver, mUri);
-            mUri = null;
+        private static class NamedEntity {
+            String title;
+            long date;
         }
     }
 
@@ -1432,9 +1273,10 @@ public class PhotoModule
 
     @Override
     public boolean capture() {
-        // If we are already in the middle of taking a snapshot then ignore.
+        // If we are already in the middle of taking a snapshot or the image save request
+        // is full then ignore.
         if (mCameraDevice == null || mCameraState == SNAPSHOT_IN_PROGRESS
-                || mCameraState == SWITCHING_CAMERA) {
+                || mCameraState == SWITCHING_CAMERA || mMediaSaver.queueFull()) {
             return false;
         }
         mCaptureStartTime = System.currentTimeMillis();
@@ -1447,13 +1289,7 @@ public class PhotoModule
             animateFlash();
         }
 
-        // Save data
-        mResetExposure = mParameters.getExposureCompensation();
-        // Set rotation and gps data
-        if (mSceneMode == Util.SCENE_MODE_HDR && Util.needSamsungHDRFormat()) {
-            // Samsung actually specifies max range via exposure compensation
-            mParameters.setExposureCompensation(mParameters.getMaxExposureCompensation());
-        }
+        // Set rotation and gps data.
         mJpegRotation = Util.getJpegRotation(mCameraId, mOrientation);
         mParameters.setRotation(mJpegRotation);
         Location loc = mLocationManager.getCurrentLocation();
@@ -1464,8 +1300,7 @@ public class PhotoModule
                 mPostViewPictureCallback, new JpegPictureCallback(loc),
                 mCameraState, mFocusManager.getFocusState());
 
-        if (Util.enableZSL() && (mSceneMode != Util.SCENE_MODE_HDR
-                || !Util.needSamsungHDRFormat())) {
+        if (Util.enableZSL()) {
             mRestartPreview = false;
         }
 
@@ -1473,9 +1308,7 @@ public class PhotoModule
             animateFlash();
         }
 
-        Size size = mParameters.getPictureSize();
-        mImageNamer.prepareUri(mContentResolver, mCaptureStartTime,
-                size.width, size.height, mJpegRotation);
+        mNamedImages.nameNewImage(mContentResolver, mCaptureStartTime);
 
         mFaceDetectionStarted = false;
         setCameraState(SNAPSHOT_IN_PROGRESS);
@@ -1529,6 +1362,7 @@ public class PhotoModule
         if (mBlocker != null) {
             mBlocker.setVisibility(full ? View.VISIBLE : View.GONE);
         }
+        if (!full && mCountDownView != null) mCountDownView.cancelCountDown();
         if (ApiHelper.HAS_SURFACE_TEXTURE) {
             if (mActivity.mCameraScreenNail != null) {
                 ((CameraScreenNail) mActivity.mCameraScreenNail).setFullScreen(full);
@@ -1615,6 +1449,7 @@ public class PhotoModule
         // Remove the top level popup or dialog box and return true if there's any
         if (mPopup != null) {
             dismissPopup(true);
+            mActivity.recreateScreenNail();
             return true;
         }
         return false;
@@ -1732,13 +1567,13 @@ public class PhotoModule
             if (mSaveUri != null) {
                 newExtras.putParcelable(MediaStore.EXTRA_OUTPUT, mSaveUri);
             } else {
-                newExtras.putBoolean("return-data", true);
+                newExtras.putBoolean(CropExtras.KEY_RETURN_DATA, true);
             }
             if (mActivity.isSecureCamera()) {
-                newExtras.putBoolean(CropImage.KEY_SHOW_WHEN_LOCKED, true);
+                newExtras.putBoolean(CropExtras.KEY_SHOW_WHEN_LOCKED, true);
             }
 
-            Intent cropIntent = new Intent("com.android.camera.action.CROP");
+            Intent cropIntent = new Intent(FilterShowActivity.CROP_ACTION);
 
             cropIntent.setData(tempUri);
             cropIntent.putExtras(newExtras);
@@ -1765,6 +1600,9 @@ public class PhotoModule
             if (mSceneMode == Util.SCENE_MODE_HDR) {
                 mActivity.hideSwitcher();
                 mActivity.setSwipingEnabled(false);
+            }
+            if (mHwFocusCameraKey) {
+                mFocusManager.onShutterUp();
             }
             mFocusManager.onShutterDown();
         } else {
@@ -1808,121 +1646,6 @@ public class PhotoModule
             return;
         }
 
-        if (Util.getDoSoftwareHDRShot() && !mHDRShotInProgress && !mHDRRendering) {
-            Log.d(TAG, "Starting HDR shot - set min exposure");
-            mParameters.setExposureCompensation(mParameters.getMinExposureCompensation());
-            mCameraDevice.setParameters(mParameters);
-            mHDRShotInProgress = true;
-            sHDRShotsPaths.clear();
-
-            // We hide controls while we are shooting
-            mActivity.hideSwitcher();
-            mActivity.setSwipingEnabled(false);
-
-
-            // We queue the shot so exposure gets set
-            mHandler.postDelayed(new Runnable() {
-                public void run() {
-                    mHDRExposureSet = true;
-                    onShutterButtonClick();
-                }
-            }, 1000);
-            return;
-        }
-        else if (Util.getDoSoftwareHDRShot() && mHDRShotInProgress && !mHDRExposureSet) {
-            // We do min, 0, max exposure shots
-            int value = mParameters.getExposureCompensation();
-            int max = mParameters.getMaxExposureCompensation();
-
-            // Non-ZSL devices hates setting parameters while shot is being taken. We
-            // use SnapshotOnIdle as a callback when a shot is ready to be taken, and
-            // we manually queue another shot.
-            boolean queueShot = false;
-
-            if (mParameters.getMinExposureCompensation() == value) {
-                mParameters.setExposureCompensation(0);
-                Log.d(TAG, "HDR - Set exposure to 0");
-                mCameraDevice.setParameters(mParameters);
-                queueShot = true;
-                mHDRExposureSet = true;
-            } else if (value == 0) {
-                mParameters.setExposureCompensation(mParameters.getMaxExposureCompensation());
-                Log.d(TAG, "HDR - Set exposure to max");
-                mCameraDevice.setParameters(mParameters);
-                queueShot = true;
-                mHDRExposureSet = true;
-            } else {
-                // We did all exposures the sensor is capable of, we stop HDR shot
-                mHDRShotInProgress = false;
-                mHDRRendering = true;
-                mSnapshotOnIdle = false;
-                mBurstShotsDone = 0;
-                Log.d(TAG, "Done shooting all exposures, computing HDR");
-
-                // We release controls
-                mActivity.showSwitcher();
-                mActivity.setSwipingEnabled(true);
-
-                // And we compute the final image
-                final HdrSoftwareProcessor hdr = new HdrSoftwareProcessor(mActivity);
-
-                mHdrProgressDialog = ProgressDialog.show(mActivity, mActivity.getString(R.string.pref_camera_scenemode_entry_hdr), mActivity.getString(R.string.wait), true);
-
-                // Let a second for the shot to get recorded on SDcard, then go!
-                mHandler.postDelayed(new Runnable() {
-                    public void run() {
-                        new Thread() {
-                            public void run() {
-                                Uri[] strArray = new Uri[sHDRShotsPaths.size()];
-                                sHDRShotsPaths.toArray(strArray);
-
-                                try {
-                                    Size s = mParameters.getPictureSize();
-                                    mImageNamer.prepareUri(mContentResolver, mCaptureStartTime, s.width, s.height, mJpegRotation);
-                                    hdr.prepare(mActivity, strArray);
-
-                                    byte[] jpegData = hdr.computeHDR(mActivity);
-
-                                    Uri uri = mImageNamer.getUri();
-                                    mActivity.addSecureAlbumItemIfNeeded(false, uri);
-                                    String title = mImageNamer.getTitle();
-                                    mImageSaver.addImage(jpegData, uri, title, mLocationManager.getCurrentLocation(),
-                                        s.width, s.height, 0);
-
-                                } catch (Exception e) {
-                                    Log.e(TAG, "Could not make HDR final shot: " + e.getMessage());
-                                }
-
-                                // delete source images
-                                for (int i = 0; i < sHDRShotsPaths.size()-1; i++) {
-                                    Storage.getStorage().deleteImage(mContentResolver, sHDRShotsPaths.get(i));
-                                }
-
-                                // reset exposure
-                                mParameters.setExposureCompensation(CameraSettings.readExposure(mPreferences));
-                                mCameraDevice.setParameters(mParameters);
-
-                                mHdrProgressDialog.dismiss();
-                                mHDRRendering = false;
-                            }
-                        }.start();
-                    }
-                }, 1000);
-                return;
-            }
-
-            if (queueShot) {
-                mSnapshotOnIdle = false;
-                mHandler.postDelayed(new Runnable() {
-                    public void run() {
-                        mHDRExposureSet = true;
-                        onShutterButtonClick();
-                    }
-                }, Util.getSoftwareHDRExposureSettleTime());
-                return;
-            }
-        }
-
         if (mPaused || collapseCameraControls()
                 || (mCameraState == SWITCHING_CAMERA)
                 || (mCameraState == PREVIEW_STOPPED)) return;
@@ -1949,21 +1672,31 @@ public class PhotoModule
         mFocusManager.doSnap();
         mBurstShotsDone++;
 
-        if (mHDRShotInProgress) {
-            mHDRExposureSet = false;
-            mSnapshotOnIdle = true;
-        }
-
-        if (mBurstShotsDone >= nbBurstShots) {
-            if (!mHDRShotInProgress) {
-                mBurstShotsDone = 0;
-                mBurstShotInProgress = false;
-                mSnapshotOnIdle = false;
-            }
+        if (mBurstShotsDone == nbBurstShots) {
+            mBurstShotsDone = 0;
+            mSnapshotOnIdle = false;
         } else if (mSnapshotOnIdle == false) {
             // queue a new shot until we done all our shots
             mSnapshotOnIdle = true;
-            mBurstShotInProgress = true;
+        }
+        String timer = mPreferences.getString(
+                CameraSettings.KEY_TIMER,
+                mActivity.getString(R.string.pref_camera_timer_default));
+        boolean playSound = mPreferences.getString(CameraSettings.KEY_TIMER_SOUND_EFFECTS,
+                mActivity.getString(R.string.pref_camera_timer_sound_default))
+                .equals(mActivity.getString(R.string.setting_on_value));
+
+        int seconds = Integer.parseInt(timer);
+        // When shutter button is pressed, check whether the previous countdown is
+        // finished. If not, cancel the previous countdown and start a new one.
+        if (mCountDownView.isCountingDown()) {
+            mCountDownView.cancelCountDown();
+            mCountDownView.startCountDown(seconds, playSound);
+        } else if (seconds > 0) {
+            mCountDownView.startCountDown(seconds, playSound);
+        } else {
+           mSnapshotOnIdle = false;
+           mFocusManager.doSnap();
         }
     }
 
@@ -1978,8 +1711,8 @@ public class PhotoModule
 
     @Override
     public void updateCameraAppView() {
-        // Setup Power shutter
-        mActivity.initPowerShutter(mPreferences);
+        // Setup Power shutter and smart capture
+        updateCustomSettings(false);
     }
 
     @Override
@@ -2037,7 +1770,7 @@ public class PhotoModule
         waitCameraStartUpThread();
 
         // Disable no-hands mode, and kill any pending voice listeners
-        if (mPhotoControl != null) {
+        if (mPhotoControl != null && !mActivity.isSecureCamera()) {
             mPhotoControl.resetNoHandsShutter(true);
         }
 
@@ -2056,6 +1789,7 @@ public class PhotoModule
             mCameraDevice.cancelAutoFocus();
         }
         stopPreview();
+        mCountDownView.cancelCountDown();
         // Close the camera now because other activities may need to use it.
         closeCamera();
         if (Util.mSurfaceTexture != null) {
@@ -2064,19 +1798,18 @@ public class PhotoModule
         }
         resetScreenOn();
 
-        // Load the power shutter
-        mActivity.initPowerShutter(mPreferences);
+        // Load the Custom Settings
+        updateCustomSettings(true);
 
         // Clear UI.
         collapseCameraControls();
         if (mFaceView != null) mFaceView.clear();
 
         if (mFirstTimeInitialized) {
-            if (mImageSaver != null) {
-                mImageSaver.finish();
-                mImageSaver = null;
-                mImageNamer.finish();
-                mImageNamer = null;
+            if (mMediaSaver != null) {
+                mMediaSaver.finish();
+                mMediaSaver = null;
+                mNamedImages = null;
             }
         }
 
@@ -2108,6 +1841,9 @@ public class PhotoModule
             @Override
             public void onClick(View v) {
                 if (mPieRenderer != null) {
+                    // If autofocus is not finished, cancel autofocus so that the
+                    // subsequent touch can be handled by PreviewGestures
+                    if (mCameraState == FOCUSING) cancelAutoFocus();
                     mPieRenderer.showInCenter();
                 }
             }
@@ -2196,21 +1932,14 @@ public class PhotoModule
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         Log.v(TAG, "onConfigurationChanged");
-
-        // Wait for camera initialization
-        try {
-            if (mCameraStartUpThread != null) {
-                mCameraStartUpThread.join();
-            }
-        } catch (InterruptedException iex) {
-            // Ignore.
-        }
-
         setDisplayOrientation();
 
-        ((ViewGroup) mRootView).removeAllViews();
+        // Only the views in photo_module_content need to be removed and recreated
+        // i.e. CountDownView won't be recreated
+        ViewGroup viewGroup = (ViewGroup) mRootView.findViewById(R.id.camera_app);
+        viewGroup.removeAllViews();
         LayoutInflater inflater = mActivity.getLayoutInflater();
-        inflater.inflate(R.layout.photo_module, (ViewGroup) mRootView);
+        inflater.inflate(R.layout.photo_module_content, (ViewGroup) viewGroup);
 
         // from onCreate()
         initializeControlByIntent();
@@ -2218,6 +1947,7 @@ public class PhotoModule
         initializeFocusManager();
         initializeMiscControls();
         loadCameraPreferences();
+        updateCustomSettings(false);
 
         // from initializeFirstTime()
         mShutterButton = mActivity.getShutterButton();
@@ -2332,29 +2062,30 @@ public class PhotoModule
         switch (keyCode) {
             case KeyEvent.KEYCODE_FOCUS:
                 if (mFirstTimeInitialized && event.getRepeatCount() == 0) {
+                    mHwFocusCameraKey = true;
                     onShutterButtonFocus(true);
                 }
                 return true;
-            case KeyEvent.KEYCODE_CAMERA:
-                if (mFirstTimeInitialized && event.getRepeatCount() == 0) {
-                    onShutterButtonClick();
-                }
-                return true;
-            case KeyEvent.KEYCODE_DPAD_CENTER:
-                // If we get a dpad center event without any focused view, move
-                // the focus to the shutter button and press it.
-                if (mFirstTimeInitialized && event.getRepeatCount() == 0) {
-                    // Start auto-focus immediately to reduce shutter lag. After
-                    // the shutter button gets the focus, onShutterButtonFocus()
-                    // will be called again but it is fine.
-                    if (removeTopLevelPopup()) return true;
-                    onShutterButtonFocus(true);
-                    if (mShutterButton.isInTouchMode()) {
-                        mShutterButton.requestFocusFromTouch();
-                    } else {
-                        mShutterButton.requestFocus();
-                    }
-                    mShutterButton.setPressed(true);
+            }
+            return false;
+        case KeyEvent.KEYCODE_CAMERA:
+            if (mFirstTimeInitialized && event.getRepeatCount() == 0) {
+                onShutterButtonClick();
+            }
+            return true;
+        case KeyEvent.KEYCODE_DPAD_CENTER:
+            // If we get a dpad center event without any focused view, move
+            // the focus to the shutter button and press it.
+            if (mFirstTimeInitialized && event.getRepeatCount() == 0) {
+                // Start auto-focus immediately to reduce shutter lag. After
+                // the shutter button gets the focus, onShutterButtonFocus()
+                // will be called again but it is fine.
+                if (removeTopLevelPopup()) return true;
+                onShutterButtonFocus(true);
+                if (mShutterButton.isInTouchMode()) {
+                    mShutterButton.requestFocusFromTouch();
+                } else {
+                    mShutterButton.requestFocus();
                 }
                 return true;
             case KeyEvent.KEYCODE_POWER:
@@ -2366,12 +2097,14 @@ public class PhotoModule
                 if (mParameters.isZoomSupported() && mZoomRenderer != null) {
                     int index = mZoomValue + 1;
                     processZoomValueChanged(index);
+                    mZoomRenderer.setZoom(index);
                 }
                 return true;
             case KeyEvent.KEYCODE_VOLUME_DOWN:
                 if (mParameters.isZoomSupported() && mZoomRenderer != null) {
                     int index = mZoomValue - 1;
                     processZoomValueChanged(index);
+                    mZoomRenderer.setZoom(index);
                 }
                 return true;
         }
@@ -2385,9 +2118,7 @@ public class PhotoModule
         }
         switch (keyCode) {
             case KeyEvent.KEYCODE_FOCUS:
-                if (mFirstTimeInitialized) {
-                    onShutterButtonFocus(false);
-                }
+                mHwFocusCameraKey = false;
                 return true;
             case KeyEvent.KEYCODE_POWER:
                 if (ActivityBase.mPowerShutter) {
@@ -2404,6 +2135,25 @@ public class PhotoModule
         return false;
     }
 
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        if (mActivity.mShowCameraAppView) {
+            int currentProx = (int) event.values[0];
+            if (currentProx == 0) {
+                if (mFirstTimeInitialized) {
+                    onShutterButtonFocus(true);
+                }
+                if (canTakePicture()) {
+                    onShutterButtonClick();
+                }
+            }
+        }
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+    }
+
     @TargetApi(ApiHelper.VERSION_CODES.ICE_CREAM_SANDWICH)
     private void closeCamera() {
         if (mCameraDevice != null) {
@@ -2417,6 +2167,7 @@ public class PhotoModule
             mCameraDevice = null;
             setCameraState(PREVIEW_STOPPED);
             mFocusManager.onCameraReleased();
+            stopSmartCapture();
             hideGpsOnScreenIndicator();
         }
     }
@@ -2452,9 +2203,8 @@ public class PhotoModule
         // after taking a picture. Stop the preview to work around it. The bug
         // was fixed in JB.
         if (mCameraState != PREVIEW_STOPPED &&
-             (!mActivity.getResources().getBoolean(R.bool.previewStopsDuringSnapshot) ||
-               mCameraState != SNAPSHOT_IN_PROGRESS)
-           )
+                (!mActivity.getResources().getBoolean(R.bool.previewStopsDuringSnapshot) ||
+                mCameraState != SNAPSHOT_IN_PROGRESS))
             stopPreview();
 
         setDisplayOrientation();
@@ -2487,9 +2237,10 @@ public class PhotoModule
         CameraSettings.setVideoMode(mParameters, false);
         mCameraDevice.setParameters(mParameters);
 
-        if (mSnapshotOnIdle && (mBurstShotsDone > 0 && !mHDRShotInProgress)) {
+        if (mSnapshotOnIdle && mBurstShotsDone > 0) {
             mHandler.post(mDoSnapRunnable);
         }
+        if (mActivity.mSmartCapture) startSmartCapture();
     }
 
     private void stopPreview() {
@@ -2607,16 +2358,8 @@ public class PhotoModule
         String hdr = mPreferences.getString(CameraSettings.KEY_CAMERA_HDR,
                 mActivity.getString(R.string.pref_camera_hdr_default));
         if (mActivity.getString(R.string.setting_on_value).equals(hdr)) {
-            if (Util.isCameraHdrSupported(mParameters) && !Util.useSoftwareHDR())
-                mSceneMode = Util.SCENE_MODE_HDR;
-            else {
-                mSceneMode = Parameters.SCENE_MODE_AUTO;
-                Util.setDoSoftwareHDRShot(true);
-            }
+            mSceneMode = Util.SCENE_MODE_HDR;
         } else {
-            if (Util.useSoftwareHDR()) {
-                Util.setDoSoftwareHDRShot(false);
-            }
             mSceneMode = mPreferences.getString(
                 CameraSettings.KEY_SCENE_MODE,
                 mActivity.getString(R.string.pref_camera_scenemode_default));
@@ -2671,22 +2414,14 @@ public class PhotoModule
             mParameters.setColorEffect(colorEffect);
         }
 
-        // Set shutter speed
-        String shutterSpeed = mPreferences.getString(
-                CameraSettings.KEY_SHUTTER_SPEED,
-                mActivity.getString(R.string.pref_shutter_speed_default));
-        mParameters.set("shutter-speed", shutterSpeed);
-
         // Set exposure compensation
-        if (!mHDRShotInProgress) {
-            int value = CameraSettings.readExposure(mPreferences);
-            int max = mParameters.getMaxExposureCompensation();
-            int min = mParameters.getMinExposureCompensation();
-            if (value >= min && value <= max) {
-                mParameters.setExposureCompensation(value);
-            } else {
-                Log.w(TAG, "invalid exposure range: " + value);
-            }
+        int value = CameraSettings.readExposure(mPreferences);
+        int max = mParameters.getMaxExposureCompensation();
+        int min = mParameters.getMinExposureCompensation();
+        if (value >= min && value <= max) {
+            mParameters.setExposureCompensation(value);
+        } else {
+            Log.w(TAG, "invalid exposure range: " + value);
         }
 
         if (Parameters.SCENE_MODE_AUTO.equals(mSceneMode)) {
@@ -2765,7 +2500,6 @@ public class PhotoModule
             updateCameraParametersPreference();
         }
 
-        CameraSettings.dumpParameters(mParameters);
         mCameraDevice.setParameters(mParameters);
     }
 
@@ -2803,6 +2537,7 @@ public class PhotoModule
 
     private boolean isCameraIdle() {
         return (mCameraState == IDLE) ||
+                (mCameraState == PREVIEW_STOPPED) ||
                 ((mFocusManager != null) && mFocusManager.isFocusCompleted()
                         && (mCameraState != SWITCHING_CAMERA));
     }
@@ -2850,15 +2585,14 @@ public class PhotoModule
                 mPreferences, mContentResolver);
         mLocationManager.recordLocation(recordLocation);
 
-        if (mActivity.setStoragePath(mPreferences)) {
-            mActivity.updateStorageSpaceAndHint();
-            mActivity.reuseCameraScreenNail(!mIsImageCaptureIntent);
-        }
-
         setCameraParametersWhenIdle(UPDATE_PARAM_PREFERENCE);
         setPreviewFrameLayoutAspectRatio();
         updateOnScreenIndicators();
-        mActivity.initPowerShutter(mPreferences);
+        updateCustomSettings(false);
+
+        if (ActivityBase.mStorageToggled) {
+            mActivity.recreate();
+        }
     }
 
     @Override
@@ -2913,7 +2647,6 @@ public class PhotoModule
         setupPreview();
         loadCameraPreferences();
         initializePhotoControl();
-        mResetExposure = mParameters.getExposureCompensation();
 
         // from initializeFirstTime
         initializeZoom();
@@ -3020,6 +2753,12 @@ public class PhotoModule
         if (mFocusManager != null) mFocusManager.setPreviewSize(width, height);
     }
 
+    @Override
+    public void onCountDownFinished() {
+        mSnapshotOnIdle = false;
+        mFocusManager.doSnap();
+    }
+
     void setPreviewFrameLayoutAspectRatio() {
         // Set the preview frame aspect ratio according to the picture size.
         Size size = mParameters.getPictureSize();
@@ -3066,5 +2805,4 @@ public class PhotoModule
             mPieRenderer.hide();
         }
     }
-
 }

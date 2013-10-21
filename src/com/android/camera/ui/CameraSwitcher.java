@@ -20,6 +20,7 @@ import android.animation.Animator;
 import android.animation.Animator.AnimatorListener;
 import android.animation.AnimatorListenerAdapter;
 import android.content.Context;
+import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
@@ -48,6 +49,7 @@ public class CameraSwitcher extends RotateImageView
 
     private CameraSwitchListener mListener;
     private int mCurrentIndex;
+    private int[] mModuleIds;
     private int[] mDrawIds;
     private int mItemSize;
     private View mPopup;
@@ -78,8 +80,9 @@ public class CameraSwitcher extends RotateImageView
         mIndicator = context.getResources().getDrawable(R.drawable.ic_switcher_menu_indicator);
     }
 
-    public void setDrawIds(int[] drawids) {
+    public void setIds(int[] moduleids, int[] drawids) {
         mDrawIds = drawids;
+        mModuleIds = moduleids;
     }
 
     public void setCurrentIndex(int i) {
@@ -101,7 +104,7 @@ public class CameraSwitcher extends RotateImageView
         hidePopup();
         if ((ix != mCurrentIndex) && (mListener != null)) {
             setCurrentIndex(ix);
-            mListener.onCameraSelected(ix);
+            mListener.onCameraSelected(mModuleIds[ix]);
         }
     }
 
@@ -127,6 +130,15 @@ public class CameraSwitcher extends RotateImageView
             item.setOnClickListener(new OnClickListener() {
                 @Override
                 public void onClick(View v) {
+                    /* Once Photosphere is added to AOSP this will need
+                       to be adjusted to == 4 */
+                    if (index == 3) {
+                        closePopup();
+                        Intent launchGallery = new Intent(Intent.makeMainSelectorActivity(
+                                Intent.ACTION_MAIN, Intent.CATEGORY_APP_GALLERY));
+                        mContext.startActivity(launchGallery);
+                        return;
+                    }
                     onCameraSelected(index);
                 }
             });
@@ -146,6 +158,10 @@ public class CameraSwitcher extends RotateImageView
                 case R.drawable.ic_switch_photosphere:
                     item.setContentDescription(getContext().getResources().getString(
                             R.string.accessibility_switch_to_new_panorama));
+                    break;
+                case R.drawable.ic_switch_gallery:
+                    item.setContentDescription(getContext().getResources().getString(
+                            R.string.accessibility_switch_to_gallery));
                     break;
                 default:
                     break;
@@ -213,7 +229,7 @@ public class CameraSwitcher extends RotateImageView
     private void updateInitialTranslations() {
         if (getResources().getConfiguration().orientation
                 == Configuration.ORIENTATION_PORTRAIT) {
-            mTranslationX = -getWidth() / 2 ;
+            mTranslationX = -getWidth() / 2;
             mTranslationY = getHeight();
         } else {
             mTranslationX = getWidth();

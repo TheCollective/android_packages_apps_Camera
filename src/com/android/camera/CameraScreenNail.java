@@ -22,8 +22,8 @@ import android.opengl.Matrix;
 import android.util.Log;
 
 import com.android.gallery3d.common.ApiHelper;
-import com.android.gallery3d.ui.GLCanvas;
-import com.android.gallery3d.ui.RawTexture;
+import com.android.gallery3d.glrenderer.GLCanvas;
+import com.android.gallery3d.glrenderer.RawTexture;
 import com.android.gallery3d.ui.SurfaceTextureScreenNail;
 
 /*
@@ -76,9 +76,22 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
     private int mUncroppedRenderHeight;
     private float mScaleX = 1f, mScaleY = 1f;
     private boolean mFullScreen;
-    private boolean mEnableAspectRatioClamping = false;
     private float mAlpha = 1f;
     private Runnable mOnFrameDrawnListener;
+    private boolean mEnableAspectRatioClamping = false;
+    private boolean mAcquireTexture = false;
+    private final DrawClient mDefaultDraw = new DrawClient() {
+        @Override
+        public void onDraw(GLCanvas canvas, int x, int y, int width, int height) {
+            CameraScreenNail.super.draw(canvas, x, y, width, height);
+        }
+
+        @Override
+        public boolean requiresSurfaceTexture() {
+            return true;
+        }
+    };
+    private DrawClient mDraw = mDefaultDraw;
 
     public interface Listener {
         void requestRender();
@@ -90,6 +103,12 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
 
     public interface OnFrameDrawnListener {
         void onFrameDrawn(CameraScreenNail c);
+    }
+
+    public interface DrawClient {
+        void onDraw(GLCanvas canvas, int x, int y, int width, int height);
+
+        boolean requiresSurfaceTexture();
     }
 
     public CameraScreenNail(Listener listener) {
@@ -164,7 +183,7 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
         updateRenderSize();
     }
 
-    private void updateRenderSize() {
+    public void updateRenderSize() {
         if (!mEnableAspectRatioClamping) {
             mScaleX = mScaleY = 1f;
             mUncroppedRenderWidth = getTextureWidth();
@@ -198,20 +217,27 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
         Log.i(TAG, "aspect ratio clamping enabled, surfaceTexture scale: " + mScaleX + ", " + mScaleY);
     }
 
-    @Override
     public void acquireSurfaceTexture() {
         synchronized (mLock) {
             mFirstFrameArrived = false;
-            super.acquireSurfaceTexture();
             mAnimTexture = new RawTexture(getTextureWidth(), getTextureHeight(), true);
+            mAcquireTexture = true;
         }
+        mListener.requestRender();
     }
 
     @Override
     public void releaseSurfaceTexture() {
         synchronized (mLock) {
-            super.releaseSurfaceTexture();
-            mAnimState = ANIM_NONE; // stop the animation
+            if (mAcquireTexture) {
+                mAcquireTexture = false;
+                mLock.notifyAll();
+            } else {
+                if (super.getSurfaceTexture() != null) {
+                    super.releaseSurfaceTexture();
+                }
+                mAnimState = ANIM_NONE; // stop the animation
+            }
         }
     }
 
@@ -240,6 +266,10 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
             mListener.requestRender();
             mAnimState = ANIM_CAPTURE_START;
         }
+    }
+
+    public RawTexture getAnimationTexture() {
+        return mAnimTexture;
     }
 
     public void animateFlash(int displayRotation) {
@@ -283,25 +313,43 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
     }
 
     public void directDraw(GLCanvas canvas, int x, int y, int width, int height) {
-        super.draw(canvas, x, y, width, height);
+        DrawClient draw;
+        synchronized (mLock) {
+            draw = mDraw;
+        }
+        draw.onDraw(canvas, x, y, width, height);
+    }
+
+    public void setDraw(DrawClient draw) {
+        synchronized (mLock) {
+            if (draw == null) {
+                mDraw = mDefaultDraw;
+            } else {
+                mDraw = draw;
+            }
+        }
+        mListener.requestRender();
     }
 
     @Override
     public void draw(GLCanvas canvas, int x, int y, int width, int height) {
         synchronized (mLock) {
+            allocateTextureIfRequested(canvas);
             if (!mVisible) mVisible = true;
             SurfaceTexture surfaceTexture = getSurfaceTexture();
-            if (surfaceTexture == null || !mFirstFrameArrived) return;
             if (mOnFrameDrawnListener != null) {
                 mOnFrameDrawnListener.run();
                 mOnFrameDrawnListener = null;
             }
             float oldAlpha = canvas.getAlpha();
             canvas.setAlpha(mAlpha);
+            if (mDraw.requiresSurfaceTexture() && (surfaceTexture == null || !mFirstFrameArrived)) {
+                return;
+            }
 
             switch (mAnimState) {
                 case ANIM_NONE:
-                    super.draw(canvas, x, y, width, height);
+                    directDraw(canvas, x, y, width, height);
                     break;
                 case ANIM_SWITCH_COPY_TEXTURE:
                     copyPreviewTexture(canvas);
@@ -350,7 +398,7 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
                     // Continue to the normal draw procedure if the animation is
                     // not drawn.
                     mAnimState = ANIM_NONE;
-                    super.draw(canvas, x, y, width, height);
+                    directDraw(canvas, x, y, width, height);
                 }
             }
             canvas.setAlpha(oldAlpha);
@@ -359,17 +407,24 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
     }
 
     private void copyPreviewTexture(GLCanvas canvas) {
+        if (!mDraw.requiresSurfaceTexture() && mAnimTexture == null) {
+            mAnimTexture = new RawTexture(getTextureWidth(), getTextureHeight(), true);
+            mAnimTexture.setIsFlippedVertically(true);
+        }
         int width = mAnimTexture.getWidth();
         int height = mAnimTexture.getHeight();
         canvas.beginRenderTarget(mAnimTexture);
-        // Flip preview texture vertically. OpenGL uses bottom left point
-        // as the origin (0, 0).
-        canvas.translate(0, height);
-        canvas.scale(1, -1, 1);
-        getSurfaceTexture().getTransformMatrix(mTextureTransformMatrix);
-        updateTransformMatrix(mTextureTransformMatrix);
-        canvas.drawTexture(mExtTexture,
-                mTextureTransformMatrix, 0, 0, width, height);
+        if (!mDraw.requiresSurfaceTexture()) {
+            mDraw.onDraw(canvas, 0, 0, width, height);
+        } else {
+            // Flip preview texture vertically. OpenGL uses bottom left point
+            // as the origin (0, 0).
+            canvas.translate(0, height);
+            canvas.scale(1, -1, 1);
+            getSurfaceTexture().getTransformMatrix(mTextureTransformMatrix);
+            updateTransformMatrix(mTextureTransformMatrix);
+            canvas.drawTexture(mExtTexture, mTextureTransformMatrix, 0, 0, width, height);
+        }
         canvas.endRenderTarget();
     }
 
@@ -439,6 +494,29 @@ public class CameraScreenNail extends SurfaceTextureScreenNail {
         synchronized (mLock) {
             mAlpha = alpha;
             mListener.requestRender();
+    @Override
+    public SurfaceTexture getSurfaceTexture() {
+        synchronized (mLock) {
+            SurfaceTexture surfaceTexture = super.getSurfaceTexture();
+            if (surfaceTexture == null && mAcquireTexture) {
+                try {
+                    mLock.wait();
+                    surfaceTexture = super.getSurfaceTexture();
+                } catch (InterruptedException e) {
+                    Log.w(TAG, "unexpected interruption");
+                }
+            }
+            return surfaceTexture;
+        }
+    }
+
+    private void allocateTextureIfRequested(GLCanvas canvas) {
+        synchronized (mLock) {
+            if (mAcquireTexture) {
+                super.acquireSurfaceTexture(canvas);
+                mAcquireTexture = false;
+                mLock.notifyAll();
+            }
         }
     }
 }

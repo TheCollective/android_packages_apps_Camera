@@ -33,6 +33,10 @@ import android.hardware.Camera.CameraInfo;
 import android.hardware.Camera.Parameters;
 import android.hardware.Camera.PictureCallback;
 import android.hardware.Camera.Size;
+import android.hardware.Sensor;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorEvent;
+import android.hardware.SensorManager;
 import android.location.Location;
 import android.media.CamcorderProfile;
 import android.media.CameraProfile;
@@ -76,6 +80,7 @@ import com.android.camera.ui.RotateTextToast;
 import com.android.camera.ui.TwoStateImageView;
 import com.android.camera.ui.ZoomRenderer;
 import com.android.gallery3d.common.ApiHelper;
+import com.android.gallery3d.util.AccessibilityUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -90,7 +95,8 @@ public class VideoModule implements CameraModule,
     MediaRecorder.OnErrorListener,
     MediaRecorder.OnInfoListener,
     EffectsRecorder.EffectsListener,
-    PieRenderer.PieListener {
+    PieRenderer.PieListener,
+    SensorEventListener {
 
     private static final String TAG = "CAM_VideoModule";
 
@@ -156,6 +162,11 @@ public class VideoModule implements CameraModule,
 
     private boolean mIsVideoCaptureIntent;
     private boolean mQuickCapture;
+
+    private SensorManager mSensorManager;
+    private boolean mSensorIsRegistered = false;
+
+    private long mLastVid = 0;
 
     private MediaRecorder mMediaRecorder;
     private EffectsRecorder mEffectsRecorder;
@@ -428,14 +439,12 @@ public class VideoModule implements CameraModule,
         mPreferences.setLocalId(mActivity, mCameraId);
         CameraSettings.upgradeLocalPreferences(mPreferences.getLocal());
 
-        mActivity.setStoragePath(mPreferences);
-
         mActivity.mNumberOfCameras = CameraHolder.instance().getNumberOfCameras();
         mPrefVideoEffectDefault = mActivity.getString(R.string.pref_video_effect_default);
         resetEffect();
 
-        // Power shutter
-        mActivity.initPowerShutter(mPreferences);
+        // Setup Custom Settings
+        updateCustomSettings();
 
         // we need to reset exposure for the preview
         resetExposureCompensation();
@@ -475,14 +484,13 @@ public class VideoModule implements CameraModule,
             // ignore
         }
 
-        Thread startPreviewThread = new Thread(new Runnable() {
+        readVideoPreferences();
+        new Thread(new Runnable() {
             @Override
             public void run() {
-                readVideoPreferences();
                 startPreview();
             }
-        });
-        startPreviewThread.start();
+        }).start();
 
         initializeControlByIntent();
         initializeOverlay();
@@ -871,7 +879,12 @@ public class VideoModule implements CameraModule,
             }
             readVideoPreferences();
             resizeForPreviewAspectRatio();
-            startPreview();
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    startPreview();
+                }
+            }).start();
         }
 
         // Initializing it here after the preview is started.
@@ -892,6 +905,9 @@ public class VideoModule implements CameraModule,
         PopupManager.getInstance(mActivity).notifyShowPopup(null);
 
         mVideoNamer = new VideoNamer();
+
+        // Init some prefs
+        updateCustomSettings();
     }
 
     private void setDisplayOrientation() {
@@ -919,6 +935,8 @@ public class VideoModule implements CameraModule,
             }
         }
 
+        mPreviewing = true;
+
         setDisplayOrientation();
         mActivity.mCameraDevice.setDisplayOrientation(mCameraDisplayOrientation);
         setCameraParameters();
@@ -926,12 +944,16 @@ public class VideoModule implements CameraModule,
         try {
             if (!effectsActive()) {
                 if (ApiHelper.HAS_SURFACE_TEXTURE) {
+<<<<<<< HEAD
                     SurfaceTexture sT = null;
 
                     if (Util.mSwitchCamera) {
                         sT = Util.newSurfaceLayer(mCameraDisplayOrientation, mParameters, mActivity);
                     } else {
                         sT = ((CameraScreenNail) mActivity.mCameraScreenNail).getSurfaceTexture();
+                    }
+                    if (sT == null) {
+                        return; // The texture has been destroyed (pause, etc)
                     }
                     mActivity.mCameraDevice.setPreviewTextureAsync(sT);
                 } else {
@@ -945,9 +967,22 @@ public class VideoModule implements CameraModule,
         } catch (Throwable ex) {
             closeCamera();
             throw new RuntimeException("startPreview failed", ex);
+        } finally {
+            mActivity.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (mActivity.mOpenCameraFail) {
+                        Util.showErrorAndFinish(mActivity, R.string.cannot_connect_camera);
+                    } else if (mActivity.mCameraDisabled) {
+                        Util.showErrorAndFinish(mActivity, R.string.camera_disabled);
+                    }
+                }
+            });
         }
 
         mPreviewing = true;
+
+        if (mActivity.mSmartCapture) startSmartCapture();
     }
 
     private void stopPreview() {
@@ -972,6 +1007,7 @@ public class VideoModule implements CameraModule,
     // By default, we want to close the effects as well with the camera.
     private void closeCamera() {
         closeCamera(true);
+        stopSmartCapture();
     }
 
     // In certain cases, when the effects are active, we may want to shutdown
@@ -1009,9 +1045,7 @@ public class VideoModule implements CameraModule,
     private void releasePreviewResources() {
         if (ApiHelper.HAS_SURFACE_TEXTURE) {
             CameraScreenNail screenNail = (CameraScreenNail) mActivity.mCameraScreenNail;
-            if (screenNail.getSurfaceTexture() != null) {
-                screenNail.releaseSurfaceTexture();
-            }
+            screenNail.releaseSurfaceTexture();
             if (!ApiHelper.HAS_SURFACE_TEXTURE_RECORDING) {
                 mHandler.removeMessages(HIDE_SURFACE_VIEW);
                 mPreviewSurfaceView.setVisibility(View.GONE);
@@ -1119,12 +1153,14 @@ public class VideoModule implements CameraModule,
                 if (mParameters.isZoomSupported() && mZoomRenderer != null) {
                     int index = mZoomValue + 1;
                     processZoomValueChanged(index);
+                    mZoomRenderer.setZoom(index);
                 }
                 return true;
             case KeyEvent.KEYCODE_VOLUME_DOWN:
                 if (mParameters.isZoomSupported() && mZoomRenderer != null) {
                     int index = mZoomValue - 1;
                     processZoomValueChanged(index);
+                    mZoomRenderer.setZoom(index);
                 }
                 return true;
         }
@@ -1453,7 +1489,7 @@ public class VideoModule implements CameraModule,
         // Used when emailing.
         String filename = title + convertOutputFormatToFileExt(outputFileFormat);
         String mime = convertOutputFormatToMimeType(outputFileFormat);
-        String path = Storage.getStorage().generateDirectory() + '/' + filename;
+        String path = Storage.generateDir() + '/' + filename;
         String tmpPath = path + ".tmp";
         mCurrentVideoValues = new ContentValues(7);
         mCurrentVideoValues.put(Video.Media.TITLE, title);
@@ -1647,6 +1683,11 @@ public class VideoModule implements CameraModule,
             }
         }
 
+        // Make sure the video recording has started before announcing
+        // this in accessibility.
+        AccessibilityUtils.makeAnnouncement(mShutterButton,
+                mActivity.getString(R.string.video_recording_started));
+
         // The parameters may have been changed by MediaRecorder upon starting
         // recording. We need to alter the parameters if we support camcorder
         // zoom. To reduce latency when setting the parameters during zoom, we
@@ -1768,6 +1809,8 @@ public class VideoModule implements CameraModule,
                 mCurrentVideoFilename = mVideoFilename;
                 Log.v(TAG, "stopVideoRecording: Setting current video filename: "
                         + mCurrentVideoFilename);
+                AccessibilityUtils.makeAnnouncement(mShutterButton,
+                        mActivity.getString(R.string.video_recording_stopped));
             } catch (RuntimeException e) {
                 Log.e(TAG, "stop fail",  e);
                 if (mVideoFilename != null) deleteVideoFile(mVideoFilename);
@@ -1942,6 +1985,37 @@ public class VideoModule implements CameraModule,
                 UPDATE_RECORD_TIME, actualNextUpdateDelay);
     }
 
+    private void updateCustomSettings() {
+        mActivity.initPowerShutter(mPreferences);
+        mActivity.initStoragePrefs(mPreferences);
+        mActivity.initSmartCapture(mPreferences);
+        mActivity.initTrueView(mPreferences);
+        if (mActivity.mSmartCapture) {
+            startSmartCapture();
+        } else {
+            stopSmartCapture();
+        }
+    }
+
+    private void startSmartCapture() {
+        if (!mSensorIsRegistered) {
+            mSensorIsRegistered = true;
+            mSensorManager = mActivity.getSensorManager();
+            mSensorManager.registerListener(this,
+                    mSensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY),
+                    SensorManager.SENSOR_DELAY_UI);
+        }
+    }
+
+    private void stopSmartCapture() {
+        if (mSensorManager != null && mSensorIsRegistered) {
+            mSensorIsRegistered = false;
+            mSensorManager.unregisterListener(this,
+                    mSensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY));
+            mSensorManager = null;
+        }
+    }
+
     private static boolean isSupported(String value, List<String> supported) {
         return supported == null ? false : supported.indexOf(value) >= 0;
     }
@@ -2057,8 +2131,6 @@ public class VideoModule implements CameraModule,
             mParameters.set(mActivity.getString(R.string.videoHdrParam), videohdr);
         }
 
-        CameraSettings.dumpParameters(mParameters);
-
         mActivity.mCameraDevice.setParameters(mParameters);
         // Keep preview size up to date.
         mParameters = mActivity.mCameraDevice.getParameters();
@@ -2081,7 +2153,7 @@ public class VideoModule implements CameraModule,
 
         if (oldWidth != width || oldHeight != height) {
             screenNail.setSize(width, height);
-            screenNail.enableAspectRatioClamping();
+            mActivity.initTrueView(mPreferences);
             mActivity.notifyScreenNailChanged();
         }
 
@@ -2183,6 +2255,23 @@ public class VideoModule implements CameraModule,
             Log.w(TAG, ex);
         }
         throw new RuntimeException("Error during recording!", exception);
+    }
+
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        // Minimum 2 second timrout for start/stop record
+        // else it will crash the thread on low end devices
+        if (((SystemClock.uptimeMillis() - mLastVid) > 2000) && mActivity.mShowCameraAppView) {
+            int currentProx = (int) event.values[0];
+            if (currentProx == 0) {
+                onShutterButtonClick();
+                mLastVid = SystemClock.uptimeMillis();
+            }
+        }
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
     }
 
     private void initializeControlByIntent() {
@@ -2360,11 +2449,6 @@ public class VideoModule implements CameraModule,
             // Check if the current effects selection has changed
             if (updateEffectSelection()) return;
 
-            if (mActivity.setStoragePath(mPreferences)) {
-                mActivity.updateStorageSpaceAndHint();
-                mActivity.reuseCameraScreenNail(!mIsVideoCaptureIntent);
-            }
-
             readVideoPreferences();
             showTimeLapseUI(mCaptureTimeLapse);
             // We need to restart the preview if preview size is changed.
@@ -2385,7 +2469,11 @@ public class VideoModule implements CameraModule,
                 setCameraParameters();
             }
             updateOnScreenIndicators();
-            mActivity.initPowerShutter(mPreferences);
+            updateCustomSettings();
+
+            if (ActivityBase.mStorageToggled) {
+                mActivity.recreate();
+            }
         }
     }
 
@@ -2539,7 +2627,7 @@ public class VideoModule implements CameraModule,
         return false;
     }
 
-    private void processZoomValueChanged(int index){
+    private void processZoomValueChanged(int index) {
         if (index >= 0 && index <= mZoomMax) {
              processZoomValueChanged(index,true);
              mZoomSetByKey = true;
@@ -2548,7 +2636,7 @@ public class VideoModule implements CameraModule,
 
     private void processZoomValueChanged(int index, boolean fromKey) {
 
-        if(fromKey || (!fromKey && !mZoomSetByKey)){
+        if (fromKey || (!fromKey && !mZoomSetByKey)) {
             // Not useful to change zoom value when the activity is paused.
             if (mPaused) return;
             mZoomValue = index;
@@ -2559,7 +2647,7 @@ public class VideoModule implements CameraModule,
                 Parameters p = mActivity.mCameraDevice.getParameters();
                 mZoomRenderer.setZoomValue(mZoomRatios.get(p.getZoom()));
             }
-        }else{
+        } else {
             mZoomSetByKey = false;
         }
     }
@@ -2642,7 +2730,6 @@ public class VideoModule implements CameraModule,
         mParameters.setRotation(rotation);
         Location loc = mLocationManager.getCurrentLocation();
         Util.setGpsParameters(mParameters, loc);
-        CameraSettings.dumpParameters(mParameters);
         mActivity.mCameraDevice.setParameters(mParameters);
 
         Log.v(TAG, "Video snapshot start");
@@ -2654,9 +2741,6 @@ public class VideoModule implements CameraModule,
     @Override
     public void updateCameraAppView() {
         if (!mPreviewing || mParameters.getFlashMode() == null) return;
-
-        // Setup Power shutter
-        mActivity.initPowerShutter(mPreferences);
 
         // When going to and back from gallery, we need to turn off/on the flash.
         if (!mActivity.mShowCameraAppView) {
@@ -2732,7 +2816,7 @@ public class VideoModule implements CameraModule,
         String title = Util.createJpegName(dateTaken);
         int orientation = Exif.getOrientation(data);
         Size s = mParameters.getPictureSize();
-        Uri uri = Storage.getStorage().addImage(mContentResolver, title, dateTaken, loc, orientation, data,
+        Uri uri = Storage.addImage(mContentResolver, title, dateTaken, loc, orientation, data,
                 s.width, s.height);
         if (uri != null) {
             Util.broadcastNewPicture(mActivity, uri);
@@ -2939,7 +3023,12 @@ public class VideoModule implements CameraModule,
 
     @Override
     public void onPieClosed() {
-        mActivity.setSwipingEnabled(true);
+        if (mMediaRecorderRecording)
+            // if start recording when the pie opened, after closing the pie, the camera
+            // is recording, we should disable swiping gesture, ignore swiping gesture
+            mActivity.setSwipingEnabled(false);
+        else
+            mActivity.setSwipingEnabled(true);
     }
 
     public void showPopup(AbstractSettingPopup popup) {
@@ -2965,6 +3054,7 @@ public class VideoModule implements CameraModule,
         }
         setShowMenu(fullScreen);
         if (mPopup != null) {
+            mActivity.recreateScreenNail();
             ((FrameLayout) mRootView).removeView(mPopup);
             mPopup = null;
         }

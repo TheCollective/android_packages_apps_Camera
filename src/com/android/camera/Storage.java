@@ -37,27 +37,17 @@ import java.io.FileOutputStream;
 public class Storage {
     private static final String TAG = "CameraStorage";
 
+    public static final String DCIM =
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).toString();
+
+    // External SD DCIM (/storage/sdcard1 is android default external sd location)
+    public static final String EXTDCIM = "/storage/sdcard1/DCIM";
+    public static final String EXTMMC = "/storage/sdcard1";
+
     public static final long UNAVAILABLE = -1L;
     public static final long PREPARING = -2L;
     public static final long UNKNOWN_SIZE = -3L;
     public static final long LOW_STORAGE_THRESHOLD= 50000000;
-
-    private String mRoot = Environment.getExternalStorageDirectory().toString();
-    private static Storage sStorage;
-
-    // Singleton
-    private Storage() {}
-
-    public static Storage getStorage() {
-        if (sStorage == null) {
-            sStorage = new Storage();
-        }
-        return sStorage;
-    }
-
-    public void setRoot(String root) {
-        mRoot = root;
-    }
 
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
     private static void setImageSize(ContentValues values, int width, int height) {
@@ -68,8 +58,7 @@ public class Storage {
         }
     }
 
-    public String writeFile(String title, byte[] data) {
-        String path = generateFilepath(title);
+    public static void writeFile(String path, byte[] data) {
         FileOutputStream out = null;
         try {
             out = new FileOutputStream(path);
@@ -82,21 +71,21 @@ public class Storage {
             } catch (Exception e) {
             }
         }
-        return path;
     }
 
     // Save the image and add it to media store.
-    public Uri addImage(ContentResolver resolver, String title,
+    public static Uri addImage(ContentResolver resolver, String title,
             long date, Location location, int orientation, byte[] jpeg,
             int width, int height) {
         // Save the image.
-        String path = writeFile(title, jpeg);
+        String path = generateFilepath(title);
+        writeFile(path, jpeg);
         return addImage(resolver, title, date, location, orientation,
                 jpeg.length, path, width, height);
     }
 
     // Add the image to media store.
-    public Uri addImage(ContentResolver resolver, String title,
+    public static Uri addImage(ContentResolver resolver, String title,
             long date, Location location, int orientation, int jpegLength,
             String path, int width, int height) {
         // Insert into MediaStore.
@@ -131,93 +120,7 @@ public class Storage {
         return uri;
     }
 
-    // newImage() and updateImage() together do the same work as
-    // addImage. newImage() is the first step, and it inserts the DATE_TAKEN and
-    // DATA fields into the database.
-    //
-    // We also insert hint values for the WIDTH and HEIGHT fields to give
-    // correct aspect ratio before the real values are updated in updateImage().
-    public Uri newImage(ContentResolver resolver, String title,
-            long date, int width, int height) {
-        String path = generateFilepath(title);
-
-        // Insert into MediaStore.
-        ContentValues values = new ContentValues(4);
-        values.put(ImageColumns.DATE_TAKEN, date);
-        values.put(ImageColumns.DATA, path);
-
-        setImageSize(values, width, height);
-
-        Uri uri = null;
-        try {
-            uri = resolver.insert(Images.Media.EXTERNAL_CONTENT_URI, values);
-        } catch (Throwable th)  {
-            // This can happen when the external volume is already mounted, but
-            // MediaScanner has not notify MediaProvider to add that volume.
-            // The picture is still safe and MediaScanner will find it and
-            // insert it into MediaProvider. The only problem is that the user
-            // cannot click the thumbnail to review the picture.
-            Log.e(TAG, "Failed to new image" + th);
-        }
-        return uri;
-    }
-
-    // This is the second step. It completes the partial data added by
-    // newImage. All columns other than DATE_TAKEN and DATA are inserted
-    // here. This method also save the image data into the file.
-    //
-    // Returns true if the update is successful.
-    public boolean updateImage(ContentResolver resolver, Uri uri,
-            String title, Location location, int orientation, byte[] jpeg,
-            int width, int height) {
-        // Save the image.
-        String path = generateFilepath(title);
-        String tmpPath = path + ".tmp";
-        FileOutputStream out = null;
-        try {
-            // Write to a temporary file and rename it to the final name. This
-            // avoids other apps reading incomplete data.
-            out = new FileOutputStream(tmpPath);
-            out.write(jpeg);
-            out.close();
-            new File(tmpPath).renameTo(new File(path));
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to write image", e);
-            return false;
-        } finally {
-            try {
-                out.close();
-            } catch (Exception e) {
-            }
-        }
-
-        // Insert into MediaStore.
-        ContentValues values = new ContentValues(9);
-        values.put(ImageColumns.TITLE, title);
-        values.put(ImageColumns.DISPLAY_NAME, title + ".jpg");
-        values.put(ImageColumns.MIME_TYPE, "image/jpeg");
-        // Clockwise rotation in degrees. 0, 90, 180, or 270.
-        values.put(ImageColumns.ORIENTATION, orientation);
-        values.put(ImageColumns.SIZE, jpeg.length);
-
-        setImageSize(values, width, height);
-
-        if (location != null) {
-            values.put(ImageColumns.LATITUDE, location.getLatitude());
-            values.put(ImageColumns.LONGITUDE, location.getLongitude());
-        }
-
-        try {
-            resolver.update(uri, values, null, null);
-        } catch (Throwable th) {
-            Log.e(TAG, "Failed to update image" + th);
-            return false;
-        }
-
-        return true;
-    }
-
-    public void deleteImage(ContentResolver resolver, Uri uri) {
+    public static void deleteImage(ContentResolver resolver, Uri uri) {
         try {
             resolver.delete(uri, null, null);
         } catch (Throwable th) {
@@ -225,27 +128,30 @@ public class Storage {
         }
     }
 
-    private String generateDCIM() {
-        return new File(mRoot, Environment.DIRECTORY_DCIM).toString();
+    public static String generateDCIM() {
+        // External DCIM check
+        if(!ActivityBase.mStorageExternal) {
+            return DCIM.toString();
+        } else {
+            return EXTDCIM.toString();
+        }
     }
 
-    public String generateDirectory() {
+    public static String generateDir() {
+        // External DCIM check
         return generateDCIM() + "/Camera";
     }
 
-    private String generateFilepath(String title) {
-        return generateDirectory() + '/' + title + ".jpg";
+    public static String generateFilepath(String title) {
+        // External DCIM check
+        return generateDir() + '/' + title + ".jpg";
     }
 
-    public String generateBucketId() {
-        return String.valueOf(generateDirectory().toLowerCase().hashCode());
+    public static int generateBucketIdInt() {
+        return generateDir().toLowerCase().hashCode();
     }
 
-    public int generateBucketIdInt() {
-        return generateDirectory().toLowerCase().hashCode();
-    }
-
-    public long getAvailableSpace() {
+    public static long getAvailableSpace() {
         String state = Environment.getExternalStorageState();
         Log.d(TAG, "External storage state=" + state);
         if (Environment.MEDIA_CHECKING.equals(state)) {
@@ -255,14 +161,14 @@ public class Storage {
             return UNAVAILABLE;
         }
 
-        File dir = new File(generateDirectory());
+        File dir = new File(generateDir());
         dir.mkdirs();
         if (!dir.isDirectory() || !dir.canWrite()) {
             return UNAVAILABLE;
         }
 
         try {
-            StatFs stat = new StatFs(generateDirectory());
+            StatFs stat = new StatFs(generateDir());
             return stat.getAvailableBlocks() * (long) stat.getBlockSize();
         } catch (Exception e) {
             Log.i(TAG, "Fail to access external storage", e);
@@ -274,7 +180,7 @@ public class Storage {
      * OSX requires plugged-in USB storage to have path /DCIM/NNNAAAAA to be
      * imported. This is a temporary fix for bug#1655552.
      */
-    public void ensureOSXCompatible() {
+    public static void ensureOSXCompatible() {
         File nnnAAAAA = new File(generateDCIM(), "100ANDRO");
         if (!(nnnAAAAA.exists() || nnnAAAAA.mkdirs())) {
             Log.e(TAG, "Failed to create " + nnnAAAAA.getPath());
